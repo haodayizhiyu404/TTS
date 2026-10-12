@@ -3,10 +3,7 @@
  */
 
 import * as storage from './storage.js';
-
-function esc(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-}
+import { esc, speak } from './util.js';
 
 function detailHtml(rec) {
     return rec.senses.map(s => `
@@ -14,6 +11,7 @@ function detailHtml(rec) {
             <div class="vocab-sense-head"><b>${esc(s.pos)}</b> ${esc(s.meaning)}
                 ${s.in_context ? '<span class="vocab-ctx-badge">本剧情义项</span>' : ''}</div>
             <div class="vocab-example">${esc(s.example)}</div>
+            ${s.example_translation ? `<div class="vocab-example-cn">${esc(s.example_translation)}</div>` : ''}
             ${(s.collocations || []).length ? `<div class="vocab-colloc">搭配：${s.collocations.map(esc).join('、')}</div>` : ''}
             ${s.note ? `<div class="vocab-note">💡 ${esc(s.note)}</div>` : ''}
         </div>`).join('');
@@ -53,6 +51,7 @@ export async function renderWordsTab(container) {
                 <div class="vocab-item" data-word="${esc(r.word)}">
                     <div class="vocab-item-head">
                         <b>${esc(r.word)}</b>
+                        <button class="vocab-item-speak" title="发音">🔊</button>
                         <span class="vocab-item-meaning">${esc(r.senses.find(s => s.in_context)?.meaning || r.senses[0]?.meaning || '')}</span>
                         <span class="vocab-item-due">下次: ${esc(r.srs?.due || '-')}</span>
                         <button class="vocab-item-del" title="删除">🗑</button>
@@ -64,9 +63,13 @@ export async function renderWordsTab(container) {
 
         listEl.querySelectorAll('.vocab-item').forEach(item => {
             item.querySelector('.vocab-item-head').onclick = (e) => {
-                if (e.target.classList.contains('vocab-item-del')) return;
+                if (e.target.closest('.vocab-item-del') || e.target.closest('.vocab-item-speak')) return;
                 const d = item.querySelector('.vocab-item-detail');
                 d.style.display = d.style.display === 'none' ? 'block' : 'none';
+            };
+            item.querySelector('.vocab-item-speak').onclick = (e) => {
+                e.stopPropagation();
+                speak(item.dataset.word);
             };
             item.querySelector('.vocab-item-del').onclick = async () => {
                 if (!confirm(`删除词条「${item.dataset.word}」？`)) return;

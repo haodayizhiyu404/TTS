@@ -26,6 +26,7 @@ Analyze the selected text and return a JSON object with EXACTLY this shape:
       "meaning": "<concise Chinese meaning>",
       "in_context": <true for the sense used in THIS story context>,
       "example": "<the sentence above, trimmed>",
+      "example_translation": "<faithful Chinese translation of the example sentence>",
       "collocations": ["<common collocations, 0-3>"],
       "note": "<usage/memory tip in Chinese, or empty>"
     }
@@ -72,6 +73,7 @@ export async function lookup(selectedText, sentence, plot, sourceCard) {
             meaning: String(s.meaning || ''),
             in_context: !!s.in_context,
             example: String(s.example || sentence || ''),
+            example_translation: String(s.example_translation || ''),
             collocations: Array.isArray(s.collocations) ? s.collocations.map(String).slice(0, 3) : [],
             note: String(s.note || ''),
         })),
