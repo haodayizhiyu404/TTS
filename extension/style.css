@@ -2,10 +2,13 @@
 
 /* 宽度钉死：列宽由布局决定，绝不由内容撑开（防添加角色时抖动） */
 #mtts-drawer { width: 100%; min-width: 0; }
-#mtts-drawer .inline-drawer-content { min-width: 0; overflow: hidden; }
+#mtts-drawer .inline-drawer-content { min-width: 0; overflow-x: hidden; }
 .mtts-settings { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .mtts-settings .mtts-hint { overflow-wrap: anywhere; min-width: 0; }
 .mtts-settings .mtts-status { min-width: 0; }
+
+/* 滚动条槽位预留：内容变高导致滚动条出现时不再挤占宽度（防文字重排抖动） */
+#extensions_settings2, #extensions_settings, #extensions_wrapper { scrollbar-gutter: stable; }
 
 /* 聊天内行内装饰 */
 .mtts-line { background: rgba(100,149,237,.13); border-radius: 4px; padding: 0 3px; }
