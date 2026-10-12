@@ -1,39 +1,38 @@
 # TTS · 酒馆多人分角色朗读
 
-为 SillyTavern（酒馆）多人角色卡设计的中文上手 TTS 方案：AI 按 `【人名】：对话` 格式输出多人对话，浏览器端逐段捕捉、按角色绑定的 Edge 音色依次发声。用户（自己）的消息不朗读，发新消息自动打断。
+为 SillyTavern（酒馆）多人角色卡设计的 TTS 方案：AI 按 `【人名】：“English.”（中文翻译）` 格式输出多人对话，聊天中每句对话后自动出现 🔊，点击即用该角色的音色念出英文台词（翻译不会被念）。
 
 ## 文件说明
 
-| 文件 | 作用 |
+| 路径 | 作用 |
 |---|---|
-| `loader.js` | **粘贴进酒馆助手（JS-Slash-Runner）的唯一文件**，绑定到角色卡；负责从本仓库拉取本体并执行 |
-| `multi-char-tts.js` | 功能本体：格式解析、音色绑定 UI、播放队列、打断逻辑 |
+| `extension/` | **正式版**：标准酒馆第三方扩展（manifest.json + index.js + style.css），装这个 |
+| `loader.js` / `multi-char-tts.js` | 旧版（酒馆助手脚本 + 远程加载），保留兼容，不再更新 |
 
-## 使用前提
+## 安装（扩展）
 
-1. **发声后端（二选一，必须）**：
-   - 推荐：安装 [SillyTavern-EdgeTTS-Plugin](https://github.com/SillyTavern/SillyTavern-EdgeTTS-Plugin) 服务端插件（任何能跑酒馆的机器都行，含 Termux）
-   - 或者：Extras API 的 `enable-modules` 中加入 `edge-tts`
-2. **输出格式**：角色卡的世界书/预设中要求 AI 多人对话严格使用 `【人名】：对话内容` 格式，每段发言独立成行，角色名与设置面板里绑定的一致。
+1. 把 `extension/` 文件夹（三个文件）放进 `<酒馆目录>/public/scripts/extensions/third-party/multi-char-tts/`
+2. 重启酒馆 → 插件管理里启用 **Multi-Char TTS（多角色分音色朗读）**
+3. 打开扩展设置面板，选引擎、填配置、绑定角色音色
 
-## 安装（卡的使用者）
+## 引擎配置
 
-1. 按上文装好发声后端并重启酒馆
-2. 酒馆里打开 **酒馆助手（JS-Slash-Runner）→ 新建脚本**，把 `loader.js` 全文粘贴进去，绑定到角色卡
-3. 导入/打开卡后，点右下角 **⚙️** → 添加角色行 → 手输**故事内的角色名**（不是角色卡标题）→ 选音色 → 🔊 试听 → 保存
-4. 右下角 **🔊** 是总开关；播放中点击它立即停止
+### Fish Audio（推荐，高仿真）
 
-## 更新
+- 需要酒馆 `config.yaml` 里 `enableCorsProxy: true`（请求走酒馆 /proxy 转发，解决浏览器跨域）
+- 去 [fish.audio](https://fish.audio/) 注册 → 「开发者」页面创建 API key
+- 免费模型 `s2.1-pro-free`（官方免费开发者档，无额度承诺，随时可能调整）
+- 音色：「发现」广场打开任意声音页面，复制 model id 填到角色行里
 
-维护者 push 本仓库后，所有用户下次打开聊天时自动加载新版，无需任何手动操作。
+### Edge TTS（免费稳定，质感一般）
 
-## Termux（仅手机）用户装后端
+- 需要 SillyTavern-EdgeTTS-Plugin 服务端插件（或 Extras 的 edge-tts 模块）
+- 音色下拉框自动列出全部 322 个
 
-```bash
-pkg install git
-cd <酒馆目录>/plugins
-git clone https://github.com/SillyTavern/SillyTavern-EdgeTTS-Plugin
-cd SillyTavern-EdgeTTS-Plugin && npm install --omit=dev
-```
+## 角色卡配合
 
-然后编辑酒馆 `config.yaml`：`enableServerPlugins: true`，重启酒馆。
+世界书输出规则：多人对话严格使用 `【人名】：“英文台词.”（中文翻译）`，每段独立成行；角色名与扩展里绑定的名字一致（是故事内人物名，不是卡名）。
+
+## Termux（仅手机）用户
+
+装扩展同上；若用 Fish 引擎，`config.yaml` 的 `enableCorsProxy: true` 同样适用。
