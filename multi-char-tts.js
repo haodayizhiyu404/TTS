@@ -1,7 +1,7 @@
 (async () => {
 'use strict';
 
-const TTS_VERSION = '1.2.0';
+const TTS_VERSION = '1.2.1';
 /**
  * ============================================================
  *  多角色分音色 TTS · UI 版（Edge TTS）
@@ -204,50 +204,75 @@ function normalizeIndex(messageIndex) {
 function decorateMessage(mesIndex) {
     const mesText = parentDoc.querySelector(`#chat .mes[mesid="${mesIndex}"] .mes_text`);
     if (!mesText || mesText.querySelector('.mtts-play')) return; // 已装饰过
-    const walker = parentDoc.createTreeWalker(mesText, NodeFilter.SHOW_TEXT);
-    const targets = [];
-    while (walker.nextNode()) {
-        if (walker.currentNode.nodeValue.includes('【')) targets.push(walker.currentNode);
-    }
-    for (const node of targets) decorateTextNode(node);
-}
 
-function decorateTextNode(node) {
-    const text = node.nodeValue;
+    // 汇总整条消息的纯文本，并记录每个文本节点的全局偏移
+    const nodes = [];
+    const walker = parentDoc.createTreeWalker(mesText, NodeFilter.SHOW_TEXT);
+    let offset = 0;
+    let n;
+    while ((n = walker.nextNode()) !== null) {
+        nodes.push({ node: n, start: offset });
+        offset += n.nodeValue.length;
+    }
+    if (nodes.length === 0) return;
+    const fullText = nodes.map(x => x.node).map(x => x.nodeValue).join('');
+
+    // 在完整文本上找所有【人名】：标记
     LINE_RE.lastIndex = 0;
     const marks = [];
     let m;
-    while ((m = LINE_RE.exec(text)) !== null) {
-        marks.push({ name: m[1].trim(), start: m.index, contentStart: LINE_RE.lastIndex });
+    while ((m = LINE_RE.exec(fullText)) !== null) {
+        marks.push({ name: m[1].trim(), start: m.index });
     }
     if (marks.length === 0) return;
 
-    const frag = parentDoc.createDocumentFragment();
-    let pos = 0;
-    for (let i = 0; i < marks.length; i++) {
-        const segEnd = i + 1 < marks.length ? marks[i + 1].start : text.length;
-        // 标记前的普通文本原样保留
-        if (marks[i].start > pos) frag.appendChild(parentDoc.createTextNode(text.slice(pos, marks[i].start)));
-
-        const lineText = text.slice(marks[i].start, segEnd);
-        const lineSpan = parentDoc.createElement('span');
-        lineSpan.className = 'mtts-line';
-        lineSpan.textContent = lineText;
-        frag.appendChild(lineSpan);
-
-        const spoken = extractSpoken(lineText);
-        const btn = parentDoc.createElement('span');
-        btn.className = 'mtts-play';
-        btn.textContent = '🔊';
-        btn.title = spoken ? '朗读本句（仅英文）' : '本句没有可朗读的英文';
-        if (!spoken) btn.classList.add('mtts-dim');
-        else btn.onclick = (ev) => { ev.stopPropagation(); playLine(marks[i].name, spoken); };
-        frag.appendChild(btn);
-
-        pos = segEnd;
+    // 从后往前装饰，保持前面的偏移有效
+    for (let i = marks.length - 1; i >= 0; i--) {
+        const end = i + 1 < marks.length ? marks[i + 1].start : fullText.length;
+        const lineText = fullText.slice(marks[i].start, end);
+        wrapLine(nodes, marks[i].start, end, lineText, marks[i].name);
     }
-    if (pos < text.length) frag.appendChild(parentDoc.createTextNode(text.slice(pos)));
-    node.parentNode.replaceChild(frag, node);
+}
+
+function locateNode(nodes, pos) {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+        if (nodes[i].start <= pos && nodes[i].node.parentNode) {
+            return { node: nodes[i].node, offset: pos - nodes[i].start };
+        }
+    }
+    return null;
+}
+
+function wrapLine(nodes, start, end, lineText, name) {
+    const s = locateNode(nodes, start);
+    const e = locateNode(nodes, end);
+    if (!s || !e) return;
+
+    const range = parentDoc.createRange();
+    try {
+        range.setStart(s.node, s.offset);
+        range.setEnd(e.node, e.offset);
+    } catch (err) { return; }
+
+    const span = parentDoc.createElement('span');
+    span.className = 'mtts-line';
+    try {
+        range.surroundContents(span);
+    } catch (err) {
+        // 段首/段尾落在 <em> 等元素内部时 surroundContents 会失败，改用手动提取
+        const frag = range.extractContents();
+        span.appendChild(frag);
+        range.insertNode(span);
+    }
+
+    const spoken = extractSpoken(lineText);
+    const btn = parentDoc.createElement('span');
+    btn.className = 'mtts-play';
+    btn.textContent = '🔊';
+    btn.title = spoken ? '朗读本句（仅英文）' : '本句没有可朗读的英文';
+    if (!spoken) btn.classList.add('mtts-dim');
+    else btn.onclick = (ev) => { ev.stopPropagation(); playLine(name, spoken); };
+    span.parentNode.insertBefore(btn, span.nextSibling);
 }
 
 function decorateAll() {
