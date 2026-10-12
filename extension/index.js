@@ -11,7 +11,7 @@
  */
 
 import { extension_settings } from '../../../extensions.js';
-import { eventSource, event_types, getContext, getRequestHeaders, saveSettingsDebounced } from '../../../script.js';
+import { eventSource, event_types, getContext, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
 const VERSION = '2.0.0';
