@@ -1,5 +1,12 @@
 /* Multi-Char TTS 扩展样式 */
 
+/* 宽度钉死：列宽由布局决定，绝不由内容撑开（防添加角色时抖动） */
+#mtts-drawer { width: 100%; min-width: 0; }
+#mtts-drawer .inline-drawer-content { min-width: 0; overflow: hidden; }
+.mtts-settings { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.mtts-settings .mtts-hint { overflow-wrap: anywhere; min-width: 0; }
+.mtts-settings .mtts-status { min-width: 0; }
+
 /* 聊天内行内装饰 */
 .mtts-line { background: rgba(100,149,237,.13); border-radius: 4px; padding: 0 3px; }
 .mtts-play { cursor: pointer; opacity: .5; font-size: .85em; padding: 0 2px; user-select: none; }
@@ -13,18 +20,19 @@
 .mtts-settings input[type=range] { flex: 1; min-width: 0; }
 
 /* 字段行（全局配置） */
-.mtts-settings .mtts-field { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+.mtts-settings .mtts-field { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; min-width: 0; }
 .mtts-settings .mtts-field input[type=text], .mtts-settings .mtts-field input[type=password],
 .mtts-settings .mtts-field select { flex: 1; min-width: 0; background: var(--black30a, #2b2b3a);
     border: 1px solid var(--SmartThemeBorderColor, #555); color: var(--SmartThemeBodyColor, #fff);
     border-radius: 6px; padding: 4px 8px; }
 
 /* 角色行：宽度锁定容器内 100%，子元素全部可收缩（防抖动/溢出） */
-.mtts-settings .mtts-row { display: flex; gap: 6px; margin: 6px 0; align-items: center; width: 100%; }
+.mtts-settings .mtts-row { display: flex; gap: 6px; margin: 6px 0; align-items: center; width: 100%; min-width: 0; }
 .mtts-settings .mtts-row input.mtts-name { flex: 1 1 0; min-width: 0; background: var(--black30a, #2b2b3a);
     border: 1px solid var(--SmartThemeBorderColor, #555); color: var(--SmartThemeBodyColor, #fff);
     border-radius: 6px; padding: 4px 8px; }
 .mtts-settings .mtts-row .mtts-voice { flex: 2 1 0; min-width: 0; width: auto; max-width: none;
+    overflow: hidden; text-overflow: ellipsis;
     background: var(--black30a, #2b2b3a);
     border: 1px solid var(--SmartThemeBorderColor, #555); color: var(--SmartThemeBodyColor, #fff);
     border-radius: 6px; padding: 4px; }
@@ -46,6 +54,7 @@
 /* 已保存绑定的显示态 */
 .mtts-chip { background: var(--black30a, #2b2b3a); border: 1px solid var(--SmartThemeBorderColor, #555);
     border-radius: 6px; padding: 3px 8px; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; min-width: 0; }
+    white-space: nowrap; min-width: 0; max-width: 100%; }
 .mtts-chip-name { flex: 0 1 auto; font-weight: bold; max-width: 40%; }
 .mtts-chip-voice { flex: 1 1 0; opacity: .85; font-size: 12px; }
+
