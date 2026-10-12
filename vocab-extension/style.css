@@ -9,13 +9,13 @@
 }
 #vocab-sel-btn:hover { background: #359e3c; }
 
-/* 弹窗：固定尺寸，三标签页同高，超出内部滚动 */
-#vocab-modal { position: fixed; inset: 0; z-index: 10000; display: flex;
-    align-items: center; justify-content: center; }
-#vocab-modal .vocab-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+/* 弹窗：尺寸与位置由 menu.js 按 visualViewport 动态计算（适配缩放/移动布局），
+   CSS 只负责外观与上下限兜底 */
+#vocab-modal { position: fixed; top: 0; left: 0; z-index: 10000; display: block; }
+#vocab-modal .vocab-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); }
 #vocab-modal .vocab-window {
-    position: relative; width: min(560px, 92vw);
-    height: auto; min-height: 320px; max-height: 92vh;
+    position: fixed; z-index: 1;
+    width: min(560px, 92vw); height: min(560px, 92vh);
     display: flex; flex-direction: column;
     background: #1e1e2a; color: #e8e8ef;
     border: 1px solid #444; border-radius: 12px;

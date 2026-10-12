@@ -12,6 +12,24 @@ let modal = null;
 let activeTab = 'review';
 const TAB_RENDERERS = { review: renderReviewTab, words: renderWordsTab, data: renderDataTab };
 
+/**
+ * 把弹窗钉在"真实可视区域"正中。
+ * 纯 CSS 的 fixed/92vh 只能参照布局视口，在浏览器缩放、移动仿真、
+ * 横向多面板布局下会偏到看不见的地方；visualViewport 才是肉眼看到的区域。
+ */
+function syncModalPos() {
+    if (!modal || modal.style.display === 'none') return;
+    const vv = window.visualViewport;
+    const win = modal.querySelector('.vocab-window');
+    if (!vv || !win) return;
+    const w = Math.min(560, Math.round(vv.width * 0.92));
+    const h = Math.min(560, Math.round(vv.height * 0.92));
+    win.style.width = w + 'px';
+    win.style.height = h + 'px';
+    win.style.left = Math.round(vv.pageLeft + Math.max(0, (vv.width - w) / 2)) + 'px';
+    win.style.top = Math.round(vv.pageTop + Math.max(0, (vv.height - h) / 2)) + 'px';
+}
+
 function ensureModal() {
     if (modal) return modal;
     modal = document.createElement('div');
@@ -42,6 +60,12 @@ function ensureModal() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && modal.style.display !== 'none') closeModal();
     });
+    // 视口变化（缩放/滚动/旋转）时重新定位
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', syncModalPos);
+        window.visualViewport.addEventListener('scroll', syncModalPos);
+    }
+    window.addEventListener('resize', syncModalPos);
     return modal;
 }
 
@@ -71,7 +95,8 @@ async function switchTab(tab) {
 
 export function openModal(tab) {
     const m = ensureModal();
-    m.style.display = 'flex';
+    m.style.display = 'block';
+    syncModalPos(); // 打开即钉到可视区域正中
     switchTab(tab || activeTab);
 }
 
