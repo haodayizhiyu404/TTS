@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.3.5';
+const VERSION = '2.4.0';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -144,6 +144,42 @@ async function synth(text, voice) {
     return await synthEdge(text, voice);
 }
 
+// ==================== 音频缓存（会话内） ====================
+// 同 引擎+音色+语速+文本 直接复用已合成的音频，避免重复请求浪费额度；
+// 150 条 LRU 淘汰；在途请求去重（快速连点只发一个）
+
+const audioCache = new Map();
+const pendingSynth = new Map();
+const CACHE_MAX = 150;
+
+function cacheKey(text, voice) {
+    const speedParam = global.provider === 'fish' ? (card?.speed ?? 1) : global.rate;
+    return `${global.provider}|${voice}|${speedParam}|${text}`;
+}
+
+async function synthCached(text, voice) {
+    const key = cacheKey(text, voice);
+    const hit = audioCache.get(key);
+    if (hit) {
+        audioCache.delete(key); // LRU：移到最新
+        audioCache.set(key, hit);
+        return hit;
+    }
+    const inflight = pendingSynth.get(key);
+    if (inflight) return inflight;
+    const promise = synth(text, voice)
+        .then(blob => {
+            if (audioCache.size >= CACHE_MAX) {
+                audioCache.delete(audioCache.keys().next().value);
+            }
+            audioCache.set(key, blob);
+            return blob;
+        })
+        .finally(() => pendingSynth.delete(key));
+    pendingSynth.set(key, promise);
+    return promise;
+}
+
 async function backendReady() {
     if (global.provider === 'fish') {
         if (!global.fishKey) {
@@ -249,13 +285,13 @@ async function pump() {
     try {
         const blob = (prefetchPromise && prefetchFor === item)
             ? await prefetchPromise
-            : await synth(item.text, item.voice);
+            : await synthCached(item.text, item.voice);
         prefetchPromise = null;
         prefetchFor = null;
         if (queue.length > 0) {
             const next = queue[0];
             prefetchFor = next;
-            prefetchPromise = synth(next.text, next.voice).catch(() => null);
+            prefetchPromise = synthCached(next.text, next.voice).catch(() => null);
         }
         if (blob) await playBlob(blob);
     } catch (e) {
@@ -558,7 +594,7 @@ async function preview(voice) {
     if (!(await backendReady())) return;
     try {
         if (playingPreview) { playingPreview.pause(); playingPreview = null; }
-        const blob = await synth(sampleText, voice);
+        const blob = await synthCached(sampleText, voice);
         const url = URL.createObjectURL(blob);
         const audio = new Audio();
         playingPreview = audio;
