@@ -33,6 +33,16 @@ function bindMiniSpeaks(container) {
     });
 }
 
+/** 出处块：原句（代码抓的 ground truth）+ AI 整句翻译（旧词条回退用义项例句译文） */
+function sourceBlock(rec) {
+    const line = cleanSourceLine(rec.source?.line || '');
+    const trans = rec.context_translation
+        || (rec.senses || []).find(s => s.in_context)?.example_translation
+        || '';
+    return `<div class="vocab-source">出处：${esc(rec.source?.card || '未知')} ｜ ${esc(line)}</div>
+        ${trans ? `<div class="vocab-source-cn">${esc(trans)}</div>` : ''}`;
+}
+
 function render(container) {
     if (deck.length === 0) {
         container.innerHTML = `<div class="vocab-empty">🎉 今日到期已全部清完</div>`;
@@ -65,7 +75,7 @@ function render(container) {
                     <button class="vocab-speak-btn" id="vocab-speak2" title="发音">🔊</button>
                 </div>
                 ${sorted.map(senseHtml).join('')}
-                <div class="vocab-source">出处：${esc(rec.source?.card || '未知')} ｜ ${esc(cleanSourceLine(rec.source?.line || ''))}</div>
+                ${sourceBlock(rec)}
             </div>
             <div class="vocab-grade-row">
                 <button data-q="${QUALITY.again}" class="vocab-grade again">不会</button>

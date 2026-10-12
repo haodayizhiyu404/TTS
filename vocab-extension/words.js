@@ -61,6 +61,8 @@ export async function renderWordsTab(container) {
                     </div>
                     <div class="vocab-item-detail" style="display:none">${detailHtml(r)}
                         <div class="vocab-source">出处：${esc(r.source?.card || '未知')} ｜ ${esc(cleanSourceLine(r.source?.line || ''))}</div>
+                        ${(r.context_translation || (r.senses || []).find(s => s.in_context)?.example_translation)
+                            ? `<div class="vocab-source-cn">${esc(r.context_translation || (r.senses || []).find(s => s.in_context)?.example_translation)}</div>` : ''}
                     </div>
                 </div>`).join('');
 
