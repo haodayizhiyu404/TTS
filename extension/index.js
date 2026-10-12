@@ -14,7 +14,7 @@ import { extension_settings } from '../../../extensions.js';
 import { eventSource, event_types, getContext, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.0.0';
+const VERSION = '2.0.1';
 
 const DEFAULT_SETTINGS = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -580,12 +580,20 @@ function injectSettingsUI() {
 // ==================== 启动 ====================
 
 jQuery(async () => {
-    loadSettings();
-    hookEvents();
-    createFloatButton();
-    injectSettingsUI();
-    setTimeout(decorateAll, 300);
-    setTimeout(decorateAll, 1500);
-    console.info(`[MultiTTS] v${VERSION} loaded, provider=${settings.provider}`);
-    notify(`Multi-Char TTS v${VERSION} 已加载（右下角 🔊，设置在插件管理里）`, 'success', 4000);
+    try {
+        loadSettings();
+        console.info(`[MultiTTS] v${VERSION} initializing, provider=${settings.provider}`);
+        hookEvents();
+        createFloatButton();
+        injectSettingsUI();
+        setTimeout(decorateAll, 300);
+        setTimeout(decorateAll, 1500);
+        notify(`Multi-Char TTS v${VERSION} 已加载（右下角 🔊，设置在插件管理里）`, 'success', 4000);
+        console.info(`[MultiTTS] v${VERSION} loaded OK`);
+    } catch (e) {
+        console.error('[MultiTTS] 初始化失败:', e);
+        try {
+            toastr.error(`Multi-Char TTS 初始化失败：${e.message}（详见 F12 Console）`, 'MultiTTS', { timeOut: 12000 });
+        } catch (_) { /* toastr 不可用时只能看控制台 */ }
+    }
 });

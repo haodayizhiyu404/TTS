@@ -1,9 +1,8 @@
 {
-    "displayName": "Multi-Char TTS（多角色分音色朗读）",
-    "version": "2.0.0",
+    "display_name": "Multi-Char TTS（多角色分音色朗读）",
+    "version": "2.0.1",
     "author": "haodayizhiyu404",
     "description": "多人卡对话分角色朗读：支持 Fish Audio / Edge TTS，行内 🔊 点播，自动朗读可选",
-    "load": true,
     "js": "index.js",
     "css": "style.css"
 }
