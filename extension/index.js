@@ -10,8 +10,8 @@
  * 配置项全部在 插件管理 → Multi-Char TTS 面板里。
  */
 
-import { extension_settings } from '../../../extensions.js';
-import { eventSource, event_types, getContext, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
+import { extension_settings, getContext } from '../../../extensions.js';
+import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
 const VERSION = '2.0.2';
