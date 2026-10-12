@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.4.1';
+const VERSION = '2.4.2';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -76,14 +76,30 @@ function cardName() {
 
 // ==================== 后端：Fish / Edge ====================
 
+// 自己维护 CSRF token：/proxy 在新版免校验，但老版本酒馆仍可能校验；
+// 带上自取的 token 两头兼容，不依赖页面全局状态
+let ttsCsrf = null;
+async function getCsrf() {
+    if (ttsCsrf) return ttsCsrf;
+    try {
+        const r = await fetch('/csrf-token');
+        if (r.ok) ttsCsrf = (await r.json()).token;
+    } catch (e) { /* 老版本无此路由则退回页面 token（getRequestHeaders 自带） */ }
+    return ttsCsrf;
+}
+function withCsrf(headers) {
+    return ttsCsrf ? { ...headers, 'X-CSRF-Token': ttsCsrf } : headers;
+}
+
 async function synthFish(text, voice) {
+    await getCsrf();
     const r = await fetch('/proxy/https://api.fish.audio/v1/tts', {
         method: 'POST',
-        headers: {
+        headers: withCsrf({
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${global.fishKey}`,
             'model': global.fishModel || 's2.1-pro-free',
-        },
+        }),
         body: JSON.stringify({
             text: text,
             reference_id: voice,
@@ -100,7 +116,8 @@ async function synthFish(text, voice) {
 
 async function detectEdgeBackend() {
     if (edgeBackend) return edgeBackend;
-    const headers = getRequestHeaders();
+    await getCsrf();
+    const headers = withCsrf(getRequestHeaders());
     try {
         const r = await fetch('/api/plugins/edge-tts/probe', { method: 'POST', headers: headers });
         if (r.ok) { edgeBackend = 'plugin'; return edgeBackend; }
@@ -132,7 +149,7 @@ async function synthEdge(text, voice) {
     const url = edgeBackend === 'plugin' ? '/api/plugins/edge-tts/generate' : '/api/edge-tts/generate';
     const r = await fetch(url, {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: withCsrf(getRequestHeaders()),
         body: JSON.stringify({ text: text, voice: voice, rate: Number(global.rate) }),
     });
     if (!r.ok) throw new Error(`Edge TTS HTTP ${r.status}`);
