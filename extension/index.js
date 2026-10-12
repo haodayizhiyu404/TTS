@@ -14,7 +14,7 @@ import { extension_settings } from '../../../extensions.js';
 import { eventSource, event_types, getContext, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.0.1';
+const VERSION = '2.0.2';
 
 const DEFAULT_SETTINGS = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -579,7 +579,7 @@ function injectSettingsUI() {
 
 // ==================== 启动 ====================
 
-jQuery(async () => {
+export function init() {
     try {
         loadSettings();
         console.info(`[MultiTTS] v${VERSION} initializing, provider=${settings.provider}`);
@@ -596,4 +596,4 @@ jQuery(async () => {
             toastr.error(`Multi-Char TTS 初始化失败：${e.message}（详见 F12 Console）`, 'MultiTTS', { timeOut: 12000 });
         } catch (_) { /* toastr 不可用时只能看控制台 */ }
     }
-});
+}
