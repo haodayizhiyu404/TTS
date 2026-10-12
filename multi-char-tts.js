@@ -1,7 +1,7 @@
 (async () => {
 'use strict';
 
-const TTS_VERSION = '1.1.0';
+const TTS_VERSION = '1.2.0';
 /**
  * ============================================================
  *  多角色分音色 TTS · UI 版（Edge TTS）
@@ -30,8 +30,29 @@ const DEFAULT_CONFIG = {
     voiceMap: {},        // { 角色名: Edge音色ID }，在设置面板里添加
     narratorVoice: null, // 旁白音色，null = 不朗读旁白
     rate: 0,             // 语速 -50 ~ +50
-    enabled: true,
+    enabled: false,      // 自动朗读默认关闭；手动点小喇叭永远可用
 };
+
+/**
+ * 对话格式规范（和世界书输出规则配套）：
+ *   【Cole】：“English dialogue.”（中文翻译）
+ * - 英文台词放在引号内（全角“”或半角""均可），这是唯一被朗读的部分
+ * - 中文翻译放在全角括号（）内，紧跟英文，永不朗读
+ * - 动作/神态描写写在外面（可用 *星号*），也不朗读
+ */
+function extractSpoken(text) {
+    // 1) 去掉全角括号中的中文翻译
+    let t = text.replace(/（[^（）]*）/g, ' ');
+    // 2) 有引号则只取引号内的英文（多个引号段拼接）
+    const quoted = [];
+    const qre = /[“"]([^“”"]+)[”"]/g;
+    let qm;
+    while ((qm = qre.exec(t)) !== null) quoted.push(qm[1]);
+    if (quoted.length > 0) t = quoted.join(' ');
+    // 3) 清理动作星号和多余空白
+    t = t.replace(/\*[^*\n]*\*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    return t;
+}
 
 const CONFIG_KEY = 'multiTtsConfig';
 const PANEL_ID = 'multi-tts-panel';
@@ -170,6 +191,87 @@ function voiceFor(name) {
     return config.voiceMap[name] ?? null; // 没绑音色的角色直接跳过
 }
 
+// ---------- 行内朗读按钮：给每句【人名】：对话后面渲染 🔊 ----------
+
+const LINE_RE = /【\s*([^\]【]{1,30}?)\s*】\s*[:：]/g;
+
+function normalizeIndex(messageIndex) {
+    if (typeof messageIndex === 'number') return messageIndex;
+    const ctx = SillyTavern.getContext();
+    return ctx.chat.length - 1;
+}
+
+function decorateMessage(mesIndex) {
+    const mesText = parentDoc.querySelector(`#chat .mes[mesid="${mesIndex}"] .mes_text`);
+    if (!mesText || mesText.querySelector('.mtts-play')) return; // 已装饰过
+    const walker = parentDoc.createTreeWalker(mesText, NodeFilter.SHOW_TEXT);
+    const targets = [];
+    while (walker.nextNode()) {
+        if (walker.currentNode.nodeValue.includes('【')) targets.push(walker.currentNode);
+    }
+    for (const node of targets) decorateTextNode(node);
+}
+
+function decorateTextNode(node) {
+    const text = node.nodeValue;
+    LINE_RE.lastIndex = 0;
+    const marks = [];
+    let m;
+    while ((m = LINE_RE.exec(text)) !== null) {
+        marks.push({ name: m[1].trim(), start: m.index, contentStart: LINE_RE.lastIndex });
+    }
+    if (marks.length === 0) return;
+
+    const frag = parentDoc.createDocumentFragment();
+    let pos = 0;
+    for (let i = 0; i < marks.length; i++) {
+        const segEnd = i + 1 < marks.length ? marks[i + 1].start : text.length;
+        // 标记前的普通文本原样保留
+        if (marks[i].start > pos) frag.appendChild(parentDoc.createTextNode(text.slice(pos, marks[i].start)));
+
+        const lineText = text.slice(marks[i].start, segEnd);
+        const lineSpan = parentDoc.createElement('span');
+        lineSpan.className = 'mtts-line';
+        lineSpan.textContent = lineText;
+        frag.appendChild(lineSpan);
+
+        const spoken = extractSpoken(lineText);
+        const btn = parentDoc.createElement('span');
+        btn.className = 'mtts-play';
+        btn.textContent = '🔊';
+        btn.title = spoken ? '朗读本句（仅英文）' : '本句没有可朗读的英文';
+        if (!spoken) btn.classList.add('mtts-dim');
+        else btn.onclick = (ev) => { ev.stopPropagation(); playLine(marks[i].name, spoken); };
+        frag.appendChild(btn);
+
+        pos = segEnd;
+    }
+    if (pos < text.length) frag.appendChild(parentDoc.createTextNode(text.slice(pos)));
+    node.parentNode.replaceChild(frag, node);
+}
+
+function decorateAll() {
+    const n = SillyTavern.getContext().chat.length;
+    for (let i = 0; i < n; i++) decorateMessage(i);
+}
+
+// 手动播放：打断当前，只读这一句
+function playLine(name, spoken) {
+    if (!spoken) return;
+    const voice = voiceFor(name);
+    if (!voice) {
+        notify(`角色「${name}」还没绑定音色，点右下角 ⚙️ 设置`, 'warning', 3000);
+        return;
+    }
+    detectBackend().then(ok => {
+        if (!ok) { notify('Edge TTS 后端不可用', 'warning'); return; }
+        stopAll();
+        queue.push({ name: name, text: spoken, voice: voice });
+        if (!isPlaying) pump();
+    });
+}
+
+
 // ---------- 播放队列 ----------
 
 const queue = [];
@@ -241,20 +343,31 @@ function stopAll() {
 // ---------- 事件挂钩 ----------
 
 function hookEvents() {
+    // AI 消息完成 → 装饰行内按钮；若开启自动朗读则解析入队
     eventOn(tavern_events.MESSAGE_RECEIVED, async (messageIndex) => {
+        const idx = normalizeIndex(messageIndex);
+        decorateMessage(idx);
         if (!config.enabled) return;
         if (!(await detectBackend())) {
             notify('Edge TTS 后端不可用：请安装 EdgeTTS 插件或在 Extras 中启用 edge-tts', 'warning', 5000);
             return;
         }
         const ctx = SillyTavern.getContext();
-        const msg = typeof messageIndex === 'number' ? ctx.chat[messageIndex] : ctx.chat[ctx.chat.length - 1];
+        const msg = ctx.chat[idx];
         if (!msg || msg.is_user || msg.is_system) return;
 
-        const segments = parseSegments(msg.mes);
+        const segments = parseSegments(msg.mes)
+            .map(s => ({ name: s.name, text: extractSpoken(s.text) }))
+            .filter(s => s.text.length > 0);
         if (segments.length === 0) return;
         enqueueMessage(segments);
     });
+
+    // 换卡（swipe）/ 编辑后重装饰
+    eventOn(tavern_events.MESSAGE_SWIPED, (messageIndex) => decorateMessage(normalizeIndex(messageIndex)));
+    eventOn(tavern_events.MESSAGE_EDITED, (messageIndex) => decorateMessage(normalizeIndex(messageIndex)));
+    // 切换聊天 → 装饰全部（DOM 更新需要时间，延迟一拍）
+    eventOn(tavern_events.CHAT_CHANGED, () => setTimeout(decorateAll, 300));
 
     // 用户发送新消息 → 打断
     eventOn(tavern_events.GENERATION_STARTED, () => stopAll());
@@ -297,6 +410,10 @@ function createFloatButtons() {
             #multi-tts-panel .mtts-status { font-size: 12px; opacity: 0.8; margin: 4px 0 8px; }
             #multi-tts-panel label { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
             #multi-tts-panel .mtts-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+            .mtts-line { background: rgba(100,149,237,.13); border-radius: 4px; padding: 0 3px; }
+            .mtts-play { cursor: pointer; opacity: .5; font-size: .85em; padding: 0 2px; user-select: none; }
+            .mtts-play:hover { opacity: 1; }
+            .mtts-play.mtts-dim { opacity: .15; cursor: not-allowed; }
         `;
         parentDoc.head.appendChild(style);
     }
@@ -358,6 +475,8 @@ async function openPanel() {
     } else {
         statusEl.textContent = `✅ 后端正常（${backend === 'plugin' ? 'EdgeTTS 插件' : 'Extras'}），共 ${voiceList.length} 个音色`;
     }
+    statusEl.insertAdjacentHTML('afterend',
+        '<div class="mtts-status">💡 聊天里每句【人名】：对话后会出现 🔊，点击朗读该句（只念英文，翻译不会被念）</div>');
 
     // 角色名由用户手输：必须是故事里的人物名（和世界书输出格式里的名字一致），
     // 与角色卡标题无关，无法自动枚举
@@ -464,6 +583,10 @@ function escapeHtml(s) {
 await detectBackend();
 hookEvents();
 createFloatButtons();
+
+// 装饰聊天里已有的消息（静态文本也能点 🔊）；DOM 可能还没渲染完，补一次延迟装饰
+setTimeout(decorateAll, 300);
+setTimeout(decorateAll, 1500);
 
 if (!backend) {
     notify('Edge TTS 后端不可用：请安装 EdgeTTS 插件或在 Extras 中启用 edge-tts（点 ⚙️ 查看说明）', 'warning', 8000);
