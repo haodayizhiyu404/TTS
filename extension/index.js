@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -428,17 +428,19 @@ function voiceInputHtml(selected) {
     return `<select class="mtts-voice mtts-edge-voice">${opts}</select>`;
 }
 
-// 编辑态行：新建或点 ✎ 后进入
-function editRowHtml(name, voice) {
-    return `<div class="mtts-row mtts-vrow">
+// 编辑态行：✓ 完成（即时写卡），✕ 取消（恢复原值/移除草稿）
+function editRowHtml(name, voice, orig) {
+    const origAttrs = orig ? `data-orig-name="${escapeHtml(orig.name)}" data-orig-voice="${escapeHtml(orig.voice)}"` : '';
+    return `<div class="mtts-row mtts-vrow" ${origAttrs}>
         <input type="text" class="mtts-name" placeholder="故事内角色名" value="${escapeHtml(name)}">
         ${voiceInputHtml(voice)}
-        <button class="mtts-ghost mtts-preview">🔊</button>
-        <button class="mtts-del" title="移除">✕</button>
+        <button class="mtts-ghost mtts-preview" title="试听">🔊</button>
+        <button class="mtts-ok" title="完成">✓</button>
+        <button class="mtts-del" title="取消">✕</button>
     </div>`;
 }
 
-// 显示态行：已保存的绑定，只看不动，✎ 才进入编辑
+// 显示态行：已保存的绑定，只读；✎ 进入编辑，🗑 删除（确认后立即生效）
 function viewRowHtml(name, voice) {
     const short = voice.length > 28 ? voice.slice(0, 28) + '…' : voice;
     return `<div class="mtts-row mtts-vrow-view" data-name="${escapeHtml(name)}" data-voice="${escapeHtml(voice)}">
@@ -446,8 +448,37 @@ function viewRowHtml(name, voice) {
         <span class="mtts-chip mtts-chip-voice" title="${escapeHtml(voice)}">${escapeHtml(short)}</span>
         <button class="mtts-ghost mtts-preview" title="试听">🔊</button>
         <button class="mtts-ghost mtts-edit" title="编辑">✎</button>
-        <button class="mtts-del" title="删除绑定">✕</button>
+        <button class="mtts-del" title="删除绑定">🗑</button>
     </div>`;
+}
+
+function commitEditRow(row) {
+    const n = row.querySelector('.mtts-name').value.trim();
+    const v = row.querySelector('.mtts-voice').value.trim();
+    if (!n) { notify('角色名不能为空', 'warning', 2000); return; }
+    if (!card) return;
+    card.voiceMap[n] = v;
+    saveCard().then(() => {
+        const frag = document.createElement('div');
+        frag.innerHTML = viewRowHtml(n, v);
+        const view = frag.firstElementChild;
+        row.replaceWith(view);
+        bindRowEvents(view.parentElement);
+        notify('已写入角色卡', 'success', 1200);
+    });
+}
+
+function cancelEditRow(row) {
+    const origName = row.dataset.origName;
+    if (origName !== undefined) {
+        const frag = document.createElement('div');
+        frag.innerHTML = viewRowHtml(origName, row.dataset.origVoice || '');
+        const view = frag.firstElementChild;
+        row.replaceWith(view);
+        bindRowEvents(view.parentElement);
+    } else {
+        row.remove(); // 草稿行，取消即丢弃
+    }
 }
 
 function bindRowEvents(root) {
@@ -459,7 +490,8 @@ function bindRowEvents(root) {
             if (!v) { notify('先填音色', 'warning', 1200); return; }
             preview(v);
         };
-        row.querySelector('.mtts-del').onclick = () => row.remove(); // 草稿行，直接移除
+        row.querySelector('.mtts-ok').onclick = () => commitEditRow(row);
+        row.querySelector('.mtts-del').onclick = () => cancelEditRow(row); // 编辑态的 ✕ = 取消
     });
     root.querySelectorAll('.mtts-vrow-view').forEach(row => {
         if (row.dataset.bound) return;
@@ -467,15 +499,20 @@ function bindRowEvents(root) {
         row.querySelector('.mtts-preview').onclick = () => preview(row.dataset.voice);
         row.querySelector('.mtts-edit').onclick = () => {
             const frag = document.createElement('div');
-            frag.innerHTML = editRowHtml(row.dataset.name, row.dataset.voice);
+            frag.innerHTML = editRowHtml(row.dataset.name, row.dataset.voice,
+                { name: row.dataset.name, voice: row.dataset.voice });
             const editRow = frag.firstElementChild;
             row.replaceWith(editRow);
             bindRowEvents(editRow.parentElement || root);
         };
-        row.querySelector('.mtts-del').onclick = () => {
-            if (confirm(`删除角色「${row.dataset.name}」的音色绑定？（点"保存到角色卡"后生效）`)) {
+        row.querySelector('.mtts-del').onclick = () => { // 显示态的 🗑 = 删除，确认后立即生效
+            const n = row.dataset.name;
+            if (!confirm(`删除角色「${n}」的音色绑定？`)) return;
+            if (card) delete card.voiceMap[n];
+            saveCard().then(() => {
                 row.remove();
-            }
+                notify('已删除', 'success', 1200);
+            });
         };
     });
 }
@@ -539,10 +576,10 @@ function renderSettings() {
         <div class="mtts-hint">角色名 = 世界书格式里【】中的名字，不是卡名。对话行尾的 🔊 随时可点。</div>
         <div id="mtts-rows">${rows}</div>
         <button class="mtts-ghost" id="mtts-add">＋ 添加角色</button>
+        <div class="mtts-hint">✓ 完成即写入角色卡；✕ 取消。所有改动自动保存，无需手动提交。</div>
         <label class="mtts-field" style="${isFish ? '' : 'display:none'}; margin-top:8px">Fish 语速 <span id="mtts-speed-out">${card.speed}</span>
             <input type="range" id="mtts-speed" min="0.5" max="1.5" step="0.05" value="${card.speed}">
         </label>
-        <button id="mtts-save">保存到角色卡</button>
         ` : `
         <div class="mtts-hint">⚠️ 请先打开一张角色卡（群聊暂不支持按卡配置音色）</div>
         `}
@@ -575,28 +612,29 @@ function renderSettings() {
         root.querySelector('#mtts-rows').insertAdjacentHTML('beforeend', editRowHtml('', ''));
         bindRowEvents(root.querySelector('#mtts-rows'));
     };
-    root.querySelector('#mtts-save').onclick = async () => {
-        // 显示态行是已保存的绑定；编辑态行覆盖同名条目
-        const voiceMap = {};
-        root.querySelectorAll('.mtts-vrow-view').forEach(row => {
-            voiceMap[row.dataset.name] = row.dataset.voice;
-        });
-        root.querySelectorAll('.mtts-vrow').forEach(row => {
-            const n = row.querySelector('.mtts-name').value.trim();
-            const v = row.querySelector('.mtts-voice').value.trim();
-            if (n) voiceMap[n] = v;
-        });
-        card.voiceMap = voiceMap;
-        if (speedEl) card.speed = Number(speedEl.value);
-        global.fishKey = root.querySelector('#mtts-fish-key')?.value.trim() ?? global.fishKey;
-        global.fishModel = root.querySelector('#mtts-fish-model')?.value.trim() || 's2.1-pro-free';
-        if (rateEl) global.rate = Number(rateEl.value);
-        global.enabled = root.querySelector('#mtts-enabled')?.checked ?? global.enabled;
+    // 全局项：一变即存
+    root.querySelector('#mtts-fish-key')?.addEventListener('change', (e) => {
+        global.fishKey = e.target.value.trim();
         saveGlobal();
-        await saveCard();
-        notify('已保存（音色表已写入角色卡）', 'success', 2000);
-        renderSettings(); // 回到显示态
-    };
+    });
+    root.querySelector('#mtts-fish-model')?.addEventListener('change', (e) => {
+        global.fishModel = e.target.value.trim() || 's2.1-pro-free';
+        saveGlobal();
+    });
+    root.querySelector('#mtts-enabled')?.addEventListener('change', (e) => {
+        global.enabled = e.target.checked;
+        saveGlobal();
+        notify(global.enabled ? '自动朗读已开启' : '自动朗读已关闭', 'info', 1200);
+    });
+    if (rateEl) rateEl.addEventListener('change', (e) => {
+        global.rate = Number(e.target.value);
+        saveGlobal();
+    });
+    if (speedEl) speedEl.addEventListener('change', (e) => {
+        if (!card) return;
+        card.speed = Number(e.target.value);
+        saveCard();
+    });
 
     updateStatus(root.querySelector('#mtts-status'));
 }

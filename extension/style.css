@@ -10,8 +10,8 @@
 .mtts-chip-name { flex: 0 0 auto; font-weight: bold; }
 .mtts-chip-voice { flex: 1; min-width: 0; opacity: .85; font-size: 12px; }
 
-/* 保存按钮与下方扩展留距 */
-#mtts-save { margin-bottom: 16px; }
+/* 完成按钮（编辑态的 ✓） */
+.mtts-settings button.mtts-ok { background: #2e7d32; padding: 4px 10px; }
 
 .mtts-settings { font-size: 13px; }
 .mtts-settings .mtts-field { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
