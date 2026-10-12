@@ -1,19 +1,21 @@
-# TTS · 酒馆多人分角色朗读
+# Multi-Char TTS · 酒馆多人分角色朗读
 
 为 SillyTavern（酒馆）多人角色卡设计的 TTS 方案：AI 按 `【人名】：“English.”（中文翻译）` 格式输出多人对话，聊天中每句对话后自动出现 🔊，点击即用该角色的音色念出英文台词（翻译不会被念）。
 
+## 安装
+
+**方式一（推荐，一键）**：酒馆 → 插件管理 → 安装扩展（从 Git）→ 粘贴 `https://github.com/haodayizhiyu404/TTS`，装完刷新页面。
+
+**方式二手动**：把仓库根目录的 `manifest.json` / `index.js` / `style.css` 三个文件放进 `<酒馆目录>/public/scripts/extensions/third-party/multi-char-tts/`，重启酒馆。
+
+装好后在插件管理里启用，展开面板配置。
+
 ## 文件说明
 
-| 路径 | 作用 |
+| 文件 | 作用 |
 |---|---|
-| `extension/` | **正式版**：标准酒馆第三方扩展（manifest.json + index.js + style.css），装这个 |
+| `manifest.json` / `index.js` / `style.css` | 扩展本体（仓库根目录即扩展目录） |
 | `loader.js` / `multi-char-tts.js` | 旧版（酒馆助手脚本 + 远程加载），保留兼容，不再更新 |
-
-## 安装（扩展）
-
-1. 把 `extension/` 文件夹（三个文件）放进 `<酒馆目录>/public/scripts/extensions/third-party/multi-char-tts/`
-2. 重启酒馆 → 插件管理里启用 **Multi-Char TTS（多角色分音色朗读）**
-3. 打开扩展设置面板，选引擎、填配置、绑定角色音色
 
 ## 引擎配置
 
@@ -31,8 +33,8 @@
 
 ## 角色卡配合
 
-世界书输出规则：多人对话严格使用 `【人名】：“英文台词.”（中文翻译）`，每段独立成行；角色名与扩展里绑定的名字一致（是故事内人物名，不是卡名）。
+世界书输出规则：多人对话严格使用 `【人名】：“英文台词.”（中文翻译）`，每段独立成行；角色名与扩展里绑定的名字一致（是故事内人物名，不是卡名）。音色表存在角色卡上，随卡导出。
 
 ## Termux（仅手机）用户
 
-装扩展同上；若用 Fish 引擎，`config.yaml` 的 `enableCorsProxy: true` 同样适用。
+同样用方式一安装扩展；`config.yaml` 的 `enableCorsProxy: true` 同样适用。
