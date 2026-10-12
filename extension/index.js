@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.3.4';
+const VERSION = '2.3.5';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -356,6 +356,8 @@ function wrapSegment(nodes, start, end, lineText, name) {
         range.setEnd(e.node, e.offset);
     } catch (err) { return; }
 
+    trimTrailingBrs(range); // 同块内 <br> 换行时不吞换行符，喇叭留在句尾
+
     const span = document.createElement('span');
     span.className = 'mtts-line';
     try {
@@ -374,6 +376,40 @@ function wrapSegment(nodes, start, end, lineText, name) {
     if (!spoken) btn.classList.add('mtts-dim');
     else btn.onclick = (ev) => { ev.stopPropagation(); playLine(name, spoken); };
     span.parentNode.insertBefore(btn, span.nextSibling);
+}
+
+// 把区间末尾往回收缩，跳过末尾的 <br> 与紧邻的空白文本节点
+// （单换行的多句对话同处一个块，<br> 不属于任何一句；不回收则喇叭会渲染到下一行开头）
+function trimTrailingBrs(range) {
+    let guard = 0;
+    while (guard++ < 10) {
+        const cont = range.endContainer;
+        const off = range.endOffset;
+        if (cont.nodeType === Node.TEXT_NODE) {
+            if (off !== 0) {
+                if (off === cont.nodeValue.length && cont.nodeValue.trim() === '') {
+                    range.setEndBefore(cont);
+                    continue;
+                }
+                break;
+            }
+            const prev = cont.previousSibling;
+            if (!prev) break;
+            if (prev.nodeName === 'BR') { range.setEndBefore(prev); continue; }
+            if (prev.nodeType === Node.TEXT_NODE && prev.nodeValue.trim() === '') {
+                range.setEnd(prev, 0);
+                continue;
+            }
+            break;
+        }
+        const prev = off > 0 ? cont.childNodes[off - 1] : null;
+        if (prev && prev.nodeName === 'BR') { range.setEndBefore(prev); continue; }
+        if (prev && prev.nodeType === Node.TEXT_NODE && prev.nodeValue.trim() === '') {
+            range.setEnd(prev, 0);
+            continue;
+        }
+        break;
+    }
 }
 
 function decorateAll() {
