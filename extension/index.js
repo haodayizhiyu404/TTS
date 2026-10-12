@@ -1,46 +1,79 @@
 /**
  * Multi-Char TTS · 多角色分音色朗读（独立扩展版）
  * ------------------------------------------------------------
- * 功能：
- * 1. 聊天中每句【人名】：“English.”（中文翻译）后渲染 🔊，点击朗读本句英文
- * 2. 引擎可切换：Fish Audio（经酒馆 /proxy 转发，需 enableCorsProxy）
- *    或 Edge TTS（需 EdgeTTS 服务端插件或 Extras）
- * 3. 每个角色独立绑定音色，旁白可选，自动朗读可选（默认关）
+ * 存储设计（两层）：
+ * - 全局层（extension_settings，本机）：引擎、Fish API key、模型、自动朗读开关
+ * - 卡片层（角色卡 data.extensions['multi-char-tts']，随卡导出）：
+ *   该卡的多角色音色表 {角色名: 音色ID}、旁白音色、语速
  * ------------------------------------------------------------
- * 配置项全部在 插件管理 → Multi-Char TTS 面板里。
+ * 引擎：
+ * - Fish Audio：POST /proxy/https://api.fish.audio/v1/tts（需 config.yaml
+ *   的 enableCorsProxy: true），免费模型 s2.1-pro-free
+ * - Edge TTS：/api/edge-tts/*（需 EdgeTTS 服务端插件或 Extras）
  */
 
-import { extension_settings, getContext } from '../../../extensions.js';
+import { extension_settings, getContext, writeExtensionField } from '../../../extensions.js';
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.0.2';
+const VERSION = '2.1.0';
 
-const DEFAULT_SETTINGS = {
+const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
-    fishKey: '',             // Fish Audio API key
+    fishKey: '',
     fishModel: 's2.1-pro-free',
-    speed: 1,                // Fish 语速 0.5~1.5（Edge 模式用 rate）
     rate: 0,                 // Edge 语速 -50~+50
     enabled: false,          // 自动朗读
-    voiceMap: {},            // { 故事内角色名: 音色ID / Edge音色名 }
-    narratorVoice: '',       // 旁白音色，空 = 不朗读
 };
 
-let settings = {};
-let edgeVoices = [];         // [{ name, locale }]
-let edgeBackend = null;      // 'plugin' | 'extras' | null
+const DEFAULT_CARD = {
+    voiceMap: {},            // { 故事内角色名: 音色ID }
+    narratorVoice: '',       // 旁白，空 = 不朗读
+    speed: 1,                // Fish 语速 0.5~1.5
+};
+
+let global = {};
+let card = null;             // 当前卡配置（null = 未打开卡/群聊）
+let currentCharIndex = -1;
+let edgeVoices = [];
+let edgeBackend = null;
 const sampleText = 'Hey! This is a voice preview. Nice to meet you!';
 
-function loadSettings() {
-    extension_settings[EXTENSION_NAME] = Object.assign(
-        {}, DEFAULT_SETTINGS, extension_settings[EXTENSION_NAME],
-    );
-    settings = extension_settings[EXTENSION_NAME];
+// ==================== 全局设置 ====================
+
+function loadGlobal() {
+    extension_settings[EXTENSION_NAME] = Object.assign({}, DEFAULT_GLOBAL, extension_settings[EXTENSION_NAME]);
+    global = extension_settings[EXTENSION_NAME];
 }
 
-function saveSettings() {
+function saveGlobal() {
     saveSettingsDebounced();
+}
+
+// ==================== 卡片设置（data.extensions，随卡导出） ====================
+
+function refreshCardContext() {
+    const ctx = getContext();
+    currentCharIndex = -1;
+    if (ctx.characterId !== undefined && ctx.characterId !== null) {
+        currentCharIndex = ctx.characters.findIndex(c => c.avatar === ctx.characterId);
+    }
+    if (currentCharIndex < 0) {
+        card = null;
+        return;
+    }
+    const raw = ctx.characters[currentCharIndex]?.data?.extensions?.[EXTENSION_NAME];
+    card = Object.assign({}, DEFAULT_CARD, raw ? JSON.parse(JSON.stringify(raw)) : {});
+}
+
+async function saveCard() {
+    if (currentCharIndex < 0 || !card) return;
+    await writeExtensionField(currentCharIndex, EXTENSION_NAME, JSON.parse(JSON.stringify(card)));
+}
+
+function cardName() {
+    if (currentCharIndex < 0) return null;
+    return getContext().characters[currentCharIndex]?.name ?? null;
 }
 
 // ==================== 后端：Fish / Edge ====================
@@ -50,14 +83,14 @@ async function synthFish(text, voice) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${settings.fishKey}`,
-            'model': settings.fishModel || 's2.1-pro-free',
+            'Authorization': `Bearer ${global.fishKey}`,
+            'model': global.fishModel || 's2.1-pro-free',
         },
         body: JSON.stringify({
             text: text,
             reference_id: voice,
             format: 'mp3',
-            prosody: { speed: Number(settings.speed) || 1 },
+            prosody: { speed: Number(card?.speed) || 1 },
         }),
     });
     if (!r.ok) {
@@ -102,27 +135,27 @@ async function synthEdge(text, voice) {
     const r = await fetch(url, {
         method: 'POST',
         headers: getRequestHeaders(),
-        body: JSON.stringify({ text: text, voice: voice, rate: Number(settings.rate) }),
+        body: JSON.stringify({ text: text, voice: voice, rate: Number(global.rate) }),
     });
     if (!r.ok) throw new Error(`Edge TTS HTTP ${r.status}`);
     return await r.blob();
 }
 
 async function synth(text, voice) {
-    if (settings.provider === 'fish') return await synthFish(text, voice);
+    if (global.provider === 'fish') return await synthFish(text, voice);
     return await synthEdge(text, voice);
 }
 
 async function backendReady() {
-    if (settings.provider === 'fish') {
-        if (!settings.fishKey) {
-            notify('还没填 Fish Audio API key（插件管理 → Multi-Char TTS）', 'warning', 4000);
+    if (global.provider === 'fish') {
+        if (!global.fishKey) {
+            notify('还没填 Fish API key（展开 Multi-Char TTS 面板）', 'warning', 4000);
             return false;
         }
         return true;
     }
     if (!(await detectEdgeBackend())) {
-        notify('Edge TTS 后端不可用：需安装 EdgeTTS 插件或在 Extras 中启用 edge-tts', 'warning', 5000);
+        notify('Edge TTS 后端不可用：需安装 EdgeTTS 插件或 Extras 的 edge-tts 模块', 'warning', 5000);
         return false;
     }
     return true;
@@ -141,17 +174,13 @@ function cleanText(t) {
 }
 
 function extractSpoken(text) {
-    // 0) 剥掉行首的【人名】：标记本身
     let t = text.replace(/^\s*【[^】]*】\s*[:：]/, ' ');
-    // 1) 去掉全角括号中的中文翻译
     t = t.replace(/（[^（）]*）/g, ' ');
-    // 2) 有引号则只取引号内的英文
     const quoted = [];
     const qre = /[“"]([^“”"]+)[”"]/g;
     let qm;
     while ((qm = qre.exec(t)) !== null) quoted.push(qm[1]);
     if (quoted.length > 0) t = quoted.join(' ');
-    // 3) 清理动作星号和多余空白
     t = t.replace(/\*[^*\n]*\*/g, ' ').replace(/\s{2,}/g, ' ').trim();
     return t;
 }
@@ -180,8 +209,9 @@ function parseSegments(text) {
 }
 
 function voiceFor(name) {
-    if (name === null || name === undefined) return settings.narratorVoice || null;
-    return settings.voiceMap[name] ?? null;
+    if (!card) return null;
+    if (name === null || name === undefined) return card.narratorVoice || null;
+    return card.voiceMap[name] ?? null;
 }
 
 // ==================== 播放队列 ====================
@@ -255,7 +285,7 @@ function playLine(name, spoken) {
     if (!spoken) return;
     const voice = voiceFor(name);
     if (!voice) {
-        notify(`角色「${name}」还没绑定音色（插件管理 → Multi-Char TTS）`, 'warning', 3000);
+        notify(`角色「${name}」还没绑定音色（Multi-Char TTS 面板）`, 'warning', 3000);
         return;
     }
     backendReady().then(ok => {
@@ -359,8 +389,9 @@ function hookEvents() {
     eventSource.on(event_types.MESSAGE_RECEIVED, async (messageIndex) => {
         const idx = normalizeIndex(messageIndex);
         decorateMessage(idx);
-        if (!settings.enabled) return;
+        if (!global.enabled) return;
         if (!(await backendReady())) return;
+        refreshCardContext();
         const msg = getContext().chat[idx];
         if (!msg || msg.is_user || msg.is_system) return;
 
@@ -373,7 +404,12 @@ function hookEvents() {
 
     eventSource.on(event_types.MESSAGE_SWIPED, (i) => decorateMessage(normalizeIndex(i)));
     eventSource.on(event_types.MESSAGE_EDITED, (i) => decorateMessage(normalizeIndex(i)));
-    eventSource.on(event_types.CHAT_CHANGED, () => setTimeout(decorateAll, 300));
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        stopAll();
+        refreshCardContext();
+        setTimeout(decorateAll, 300);
+        renderSettings();
+    });
     eventSource.on(event_types.GENERATION_STARTED, () => stopAll());
 }
 
@@ -384,26 +420,28 @@ function notify(msg, type = 'info', timeout = 2500) {
     catch (e) { console.warn('[MultiTTS]', msg); }
 }
 
+// 小喇叭开关：放进发送区按钮列，跟随酒馆布局（含移动端）
 function createFloatButton() {
     if (document.getElementById('multi-tts-float')) return;
     const btn = document.createElement('div');
     btn.id = 'multi-tts-float';
-    btn.className = 'mtts-float-btn' + (settings.enabled ? ' mtts-on' : '');
-    btn.textContent = '🔊 TTS';
-    btn.title = '开关自动朗读（播放中点击=立即停止）';
+    btn.className = 'fa-solid fa-volume-high interactable';
+    btn.title = 'Multi-Char TTS：开关自动朗读（播放中点击=立即停止）';
+    btn.classList.toggle('mtts-on', global.enabled);
     btn.onclick = () => {
         if (currentAudio || queue.length > 0) { stopAll(); notify('已停止播放', 'info', 1200); return; }
-        settings.enabled = !settings.enabled;
-        saveSettings();
-        btn.classList.toggle('mtts-on', settings.enabled);
-        renderSettings();
-        notify(settings.enabled ? '自动朗读已开启' : '自动朗读已关闭', 'info', 1200);
+        global.enabled = !global.enabled;
+        saveGlobal();
+        btn.classList.toggle('mtts-on', global.enabled);
+        notify(global.enabled ? '自动朗读已开启' : '自动朗读已关闭', 'info', 1200);
     };
-    document.body.appendChild(btn);
+    const host = document.getElementById('options_buttons');
+    if (host) host.appendChild(btn);
+    else document.body.appendChild(btn); // 兜底
 }
 
 function voiceInputHtml(selected) {
-    if (settings.provider === 'fish') {
+    if (global.provider === 'fish') {
         return `<input type="text" class="mtts-voice mtts-fish-voice" placeholder="Fish 音色ID（广场页面复制）" value="${escapeHtml(selected)}">`;
     }
     const opts = edgeVoices.map(v =>
@@ -433,6 +471,7 @@ function bindRowEvents(root) {
     });
 }
 
+let playingPreview = null;
 async function preview(voice) {
     if (!(await backendReady())) return;
     try {
@@ -448,7 +487,6 @@ async function preview(voice) {
         notify('试听失败：' + e.message, 'error', 5000);
     }
 }
-let playingPreview = null;
 
 function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
@@ -457,13 +495,14 @@ function escapeHtml(s) {
 function renderSettings() {
     const root = document.getElementById('mtts-settings-root');
     if (!root) return;
-
-    const isFish = settings.provider === 'fish';
-    const rows = Object.entries(settings.voiceMap)
-        .map(([name, voice]) => rowHtml(name, voice)).join('');
+    const isFish = global.provider === 'fish';
+    const name = cardName();
+    const rows = card ? Object.entries(card.voiceMap)
+        .map(([n, v]) => rowHtml(n, v)).join('') : '';
 
     root.innerHTML = `
         <div class="mtts-status" id="mtts-status">检测后端中…</div>
+
         <label class="mtts-field">朗读引擎
             <select id="mtts-provider">
                 <option value="fish" ${isFish ? 'selected' : ''}>Fish Audio（高仿真，免费档）</option>
@@ -472,33 +511,43 @@ function renderSettings() {
         </label>
         <div id="mtts-fish-config" style="${isFish ? '' : 'display:none'}">
             <label class="mtts-field">Fish API Key
-                <input type="password" id="mtts-fish-key" value="${escapeHtml(settings.fishKey)}" placeholder="fish.audio 开发者页面创建">
+                <input type="password" id="mtts-fish-key" value="${escapeHtml(global.fishKey)}" placeholder="fish.audio 开发者页面创建">
             </label>
             <label class="mtts-field">Fish 模型
-                <input type="text" id="mtts-fish-model" value="${escapeHtml(settings.fishModel)}">
+                <input type="text" id="mtts-fish-model" value="${escapeHtml(global.fishModel)}">
             </label>
-            <div class="mtts-hint">音色ID：fish.audio「发现」广场里打开任意声音，页面上的 model id 即 reference_id，复制粘贴到下方。</div>
+            <label class="mtts-field"><input type="checkbox" id="mtts-enabled" ${global.enabled ? 'checked' : ''}> 新消息自动朗读（默认关）</label>
         </div>
         <div id="mtts-edge-config" style="${isFish ? 'display:none' : ''}">
-            <label class="mtts-field">Edge 语速 <span id="mtts-rate-out">${settings.rate}</span>
-                <input type="range" id="mtts-rate" min="-50" max="50" step="5" value="${settings.rate}">
+            <label class="mtts-field">Edge 语速 <span id="mtts-rate-out">${global.rate}</span>
+                <input type="range" id="mtts-rate" min="-50" max="50" step="5" value="${global.rate}">
             </label>
         </div>
-        <label class="mtts-field" id="mtts-speed-wrap" style="${isFish ? '' : 'display:none'}">Fish 语速 <span id="mtts-speed-out">${settings.speed}</span>
-            <input type="range" id="mtts-speed" min="0.5" max="1.5" step="0.05" value="${settings.speed}">
-        </label>
+
         <hr>
-        <div class="mtts-hint">角色音色绑定（角色名 = 世界书格式里【】中的名字，不是卡名）。对话行尾的 🔊 随时可点。</div>
+        ${card ? `
+        <div class="mtts-hint">当前角色卡：<b>${escapeHtml(name)}</b>（音色表存在卡上，随卡导出）</div>
+        <div class="mtts-hint">角色名 = 世界书格式里【】中的名字，不是卡名。对话行尾的 🔊 随时可点。</div>
         <div id="mtts-rows">${rows}</div>
         <button class="mtts-ghost" id="mtts-add">＋ 添加角色</button>
         <div class="mtts-row" style="margin-top:8px">
             <span style="flex:1">旁白（未匹配到人名的文本）</span>
-            <span id="mtts-narrator-wrap">${voiceInputHtml(settings.narratorVoice)}</span>
+            <span id="mtts-narrator-wrap">${voiceInputHtml(card.narratorVoice)}</span>
             <button class="mtts-ghost mtts-preview-n">🔊</button>
         </div>
-        <label class="mtts-field"><input type="checkbox" id="mtts-enabled" ${settings.enabled ? 'checked' : ''}> 新消息自动朗读（默认关）</label>
-        <button id="mtts-save">保存设置</button>
+        <label class="mtts-field" style="${isFish ? '' : 'display:none'}">Fish 语速 <span id="mtts-speed-out">${card.speed}</span>
+            <input type="range" id="mtts-speed" min="0.5" max="1.5" step="0.05" value="${card.speed}">
+        </label>
+        <button id="mtts-save">保存到角色卡</button>
+        ` : `
+        <div class="mtts-hint">⚠️ 请先打开一张角色卡（群聊暂不支持按卡配置音色）</div>
+        `}
     `;
+
+    if (!card) {
+        updateStatus(root.querySelector('#mtts-status'));
+        return;
+    }
 
     bindRowEvents(root);
     root.querySelector('.mtts-preview-n').onclick = () => {
@@ -506,47 +555,45 @@ function renderSettings() {
         if (!v) { notify('先选旁白音色', 'warning', 1200); return; }
         preview(v);
     };
-
     root.querySelector('#mtts-provider').onchange = async (e) => {
-        settings.provider = e.target.value;
-        if (settings.provider === 'edge' && edgeVoices.length === 0) {
+        global.provider = e.target.value;
+        if (global.provider === 'edge' && edgeVoices.length === 0) {
             root.querySelector('#mtts-status').textContent = '正在获取 Edge 音色列表…';
             edgeVoices = await fetchEdgeVoices();
         }
-        saveSettings();
+        saveGlobal();
         renderSettings();
     };
-    root.querySelector('#mtts-rate').oninput = (e) => {
-        root.querySelector('#mtts-rate-out').textContent = e.target.value;
-    };
-    root.querySelector('#mtts-speed').oninput = (e) => {
-        root.querySelector('#mtts-speed-out').textContent = e.target.value;
-    };
+    const rateEl = root.querySelector('#mtts-rate');
+    if (rateEl) rateEl.oninput = (e) => { root.querySelector('#mtts-rate-out').textContent = e.target.value; };
+    const speedEl = root.querySelector('#mtts-speed');
+    if (speedEl) speedEl.oninput = (e) => { root.querySelector('#mtts-speed-out').textContent = e.target.value; };
     root.querySelector('#mtts-add').onclick = async () => {
-        if (settings.provider === 'edge' && edgeVoices.length === 0) {
+        if (global.provider === 'edge' && edgeVoices.length === 0) {
             edgeVoices = await fetchEdgeVoices();
             if (edgeVoices.length === 0) { notify('Edge 音色列表为空，检查后端', 'warning'); return; }
         }
         root.querySelector('#mtts-rows').insertAdjacentHTML('beforeend', rowHtml('', ''));
         bindRowEvents(root.querySelector('#mtts-rows'));
     };
-    root.querySelector('#mtts-save').onclick = () => {
+    root.querySelector('#mtts-save').onclick = async () => {
         const voiceMap = {};
         root.querySelectorAll('.mtts-vrow').forEach(row => {
-            const name = row.querySelector('.mtts-name').value.trim();
-            const voice = row.querySelector('.mtts-voice').value.trim();
-            if (name) voiceMap[name] = voice;
+            const n = row.querySelector('.mtts-name').value.trim();
+            const v = row.querySelector('.mtts-voice').value.trim();
+            if (n) voiceMap[n] = v;
         });
-        settings.voiceMap = voiceMap;
-        settings.narratorVoice = root.querySelector('#mtts-narrator-wrap .mtts-voice').value.trim();
-        settings.fishKey = root.querySelector('#mtts-fish-key')?.value.trim() ?? settings.fishKey;
-        settings.fishModel = root.querySelector('#mtts-fish-model')?.value.trim() || 's2.1-pro-free';
-        settings.rate = Number(root.querySelector('#mtts-rate')?.value ?? settings.rate);
-        settings.speed = Number(root.querySelector('#mtts-speed')?.value ?? settings.speed);
-        settings.enabled = root.querySelector('#mtts-enabled').checked;
-        saveSettings();
-        document.getElementById('multi-tts-float')?.classList.toggle('mtts-on', settings.enabled);
-        notify('已保存', 'success', 1500);
+        card.voiceMap = voiceMap;
+        card.narratorVoice = root.querySelector('#mtts-narrator-wrap .mtts-voice').value.trim();
+        if (speedEl) card.speed = Number(speedEl.value);
+        global.fishKey = root.querySelector('#mtts-fish-key')?.value.trim() ?? global.fishKey;
+        global.fishModel = root.querySelector('#mtts-fish-model')?.value.trim() || 's2.1-pro-free';
+        if (rateEl) global.rate = Number(rateEl.value);
+        global.enabled = root.querySelector('#mtts-enabled')?.checked ?? global.enabled;
+        saveGlobal();
+        await saveCard();
+        document.getElementById('multi-tts-float')?.classList.toggle('mtts-on', global.enabled);
+        notify('已保存（音色表已写入角色卡）', 'success', 2000);
     };
 
     updateStatus(root.querySelector('#mtts-status'));
@@ -554,9 +601,9 @@ function renderSettings() {
 
 async function updateStatus(el) {
     if (!el) return;
-    if (settings.provider === 'fish') {
-        el.textContent = settings.fishKey
-            ? `✅ Fish Audio 就绪（模型 ${settings.fishModel}；走酒馆 /proxy 转发）`
+    if (global.provider === 'fish') {
+        el.textContent = global.fishKey
+            ? `✅ Fish Audio 就绪（模型 ${global.fishModel}；走酒馆 /proxy 转发）`
             : '⚠️ 请先填写 Fish API Key';
     } else {
         const ok = await detectEdgeBackend();
@@ -566,13 +613,22 @@ async function updateStatus(el) {
     }
 }
 
+// 折叠面板：酒馆标准 inline-drawer 结构
 function injectSettingsUI() {
     const container = document.querySelector('#extensions_settings2')
         || document.querySelector('#extensions_settings');
-    if (!container || document.getElementById('mtts-settings-root')) return;
+    if (!container || document.getElementById('mtts-drawer')) return;
     const wrap = document.createElement('div');
-    wrap.id = 'mtts-settings-root';
-    wrap.className = 'mtts-settings';
+    wrap.id = 'mtts-drawer';
+    wrap.className = 'inline-drawer';
+    wrap.innerHTML = `
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Multi-Char TTS（多角色分音色朗读）</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div id="mtts-settings-root" class="mtts-settings"></div>
+        </div>`;
     container.appendChild(wrap);
     renderSettings();
 }
@@ -581,14 +637,15 @@ function injectSettingsUI() {
 
 export function init() {
     try {
-        loadSettings();
-        console.info(`[MultiTTS] v${VERSION} initializing, provider=${settings.provider}`);
+        loadGlobal();
+        refreshCardContext();
+        console.info(`[MultiTTS] v${VERSION} initializing, provider=${global.provider}, card=${cardName() ?? 'none'}`);
         hookEvents();
         createFloatButton();
         injectSettingsUI();
         setTimeout(decorateAll, 300);
         setTimeout(decorateAll, 1500);
-        notify(`Multi-Char TTS v${VERSION} 已加载（右下角 🔊，设置在插件管理里）`, 'success', 4000);
+        notify(`Multi-Char TTS v${VERSION} 已加载`, 'success', 3000);
         console.info(`[MultiTTS] v${VERSION} loaded OK`);
     } catch (e) {
         console.error('[MultiTTS] 初始化失败:', e);
