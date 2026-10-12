@@ -101,7 +101,8 @@
 .vocab-item-del { width: 26px; height: 26px; padding: 0; flex: 0 0 26px;
     border: none; border-radius: 6px; cursor: pointer; background: #8b3a3a; }
 .vocab-item-detail { padding: 4px 12px 12px; color: #e8e8ef; }
-.vocab-hint { font-size: 12px; color: #8a93a5; margin: 6px 0; }
+.vocab-hint { font-size: 12px; margin: 6px 0; }
+#vocab-tab-content .vocab-hint { color: #8a93a5; }
 .vocab-data-info { font-size: 12px; color: #a9b4c4; line-height: 1.7; margin-bottom: 12px; }
 .vocab-data-info code { background: rgba(255,255,255,.1); color: #e8e8ef;
     padding: 1px 5px; border-radius: 4px; }
@@ -109,6 +110,6 @@
 .vocab-data-row button { padding: 8px 14px; border: none; border-radius: 8px;
     cursor: pointer; background: #2b6cb0; color: #fff; }
 
-/* 扩展设置抽屉里的开关行 */
+/* 扩展设置抽屉里的开关行：颜色跟随主题（抽屉是主题自己的界面，不强制深色） */
 .vocab-setting-row { display: flex; align-items: center; gap: 8px;
-    font-size: 13px; color: #e8e8ef; margin: 8px 0; cursor: pointer; }
+    font-size: 13px; margin: 8px 0; cursor: pointer; }
