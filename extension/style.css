@@ -1,9 +1,9 @@
 /* Multi-Char TTS 扩展样式 */
 
 /* 宽度钉死：列宽由布局决定，绝不由内容撑开（防添加角色时抖动） */
-#mtts-drawer { width: 100%; min-width: 0; }
-#mtts-drawer .inline-drawer-content { min-width: 0; overflow-x: hidden; }
-.mtts-settings { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+#mtts-drawer { width: 100%; min-width: 0; contain: inline-size; }
+#mtts-drawer .inline-drawer-content { display: block; width: 100%; min-width: 0; overflow-x: hidden; }
+.mtts-settings { width: 100%; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .mtts-settings .mtts-hint { overflow-wrap: anywhere; min-width: 0; }
 .mtts-settings .mtts-status { min-width: 0; }
 
