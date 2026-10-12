@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.1.0';
+const VERSION = '2.1.1';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -54,10 +54,9 @@ function saveGlobal() {
 
 function refreshCardContext() {
     const ctx = getContext();
-    currentCharIndex = -1;
-    if (ctx.characterId !== undefined && ctx.characterId !== null) {
-        currentCharIndex = ctx.characters.findIndex(c => c.avatar === ctx.characterId);
-    }
+    // context.characterId 即角色在 characters 数组中的下标（官方字段，不是 avatar）
+    const idx = Number(ctx.characterId);
+    currentCharIndex = Number.isInteger(idx) && idx >= 0 ? idx : -1;
     if (currentCharIndex < 0) {
         card = null;
         return;
@@ -420,7 +419,7 @@ function notify(msg, type = 'info', timeout = 2500) {
     catch (e) { console.warn('[MultiTTS]', msg); }
 }
 
-// 小喇叭开关：放进发送区按钮列，跟随酒馆布局（含移动端）
+// 小喇叭开关：挂在发送区汉堡按钮（#options_button）旁边，跟随酒馆布局（含移动端）
 function createFloatButton() {
     if (document.getElementById('multi-tts-float')) return;
     const btn = document.createElement('div');
@@ -435,9 +434,9 @@ function createFloatButton() {
         btn.classList.toggle('mtts-on', global.enabled);
         notify(global.enabled ? '自动朗读已开启' : '自动朗读已关闭', 'info', 1200);
     };
-    const host = document.getElementById('options_buttons');
-    if (host) host.appendChild(btn);
-    else document.body.appendChild(btn); // 兜底
+    const anchor = document.getElementById('options_button');
+    if (anchor) anchor.before(btn);
+    else setTimeout(createFloatButton, 2000); // DOM 未就绪，稍后重试
 }
 
 function voiceInputHtml(selected) {
@@ -645,6 +644,8 @@ export function init() {
         injectSettingsUI();
         setTimeout(decorateAll, 300);
         setTimeout(decorateAll, 1500);
+        // 页面初始化早期 characterId 可能未就绪，延迟复查一次卡片上下文
+        setTimeout(() => { refreshCardContext(); renderSettings(); }, 1200);
         notify(`Multi-Char TTS v${VERSION} 已加载`, 'success', 3000);
         console.info(`[MultiTTS] v${VERSION} loaded OK`);
     } catch (e) {
