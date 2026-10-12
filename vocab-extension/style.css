@@ -14,7 +14,8 @@
     align-items: center; justify-content: center; }
 #vocab-modal .vocab-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
 #vocab-modal .vocab-window {
-    position: relative; width: min(560px, 92vw); height: min(560px, 92vh);
+    position: relative; width: min(560px, 92vw);
+    height: auto; min-height: 320px; max-height: 92vh;
     display: flex; flex-direction: column;
     background: #1e1e2a; color: #e8e8ef;
     border: 1px solid #444; border-radius: 12px;

@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.4.0';
+const VERSION = '2.4.1';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -758,7 +758,6 @@ export function init() {
         setTimeout(decorateAll, 1500);
         // 页面初始化早期 characterId 可能未就绪，延迟复查一次卡片上下文
         setTimeout(() => { refreshCardContext(); renderSettings(); }, 1200);
-        notify(`Multi-Char TTS v${VERSION} 已加载`, 'success', 3000);
         console.info(`[MultiTTS] v${VERSION} loaded OK`);
     } catch (e) {
         console.error('[MultiTTS] 初始化失败:', e);
