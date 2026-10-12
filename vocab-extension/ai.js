@@ -37,6 +37,7 @@ Rules:
 - 1-4 senses. The FIRST sense must be the one matching the story context (in_context=true).
 - If other common senses exist (e.g. "row" = 划船 vs 一排), include them with in_context=false.
 - If the selection is a phrase/idiom, treat the whole phrase as the headword.
+- LEMMATIZE: if the selection is an inflected form, record the base dictionary form instead — "heading to" -> "head to", "went" -> "go", "bigger" -> "big". Keep phrasal-verb particles ("looked after" -> "look after"). Verb "be"/"have" forms map to "be"/"have".
 - All meanings/notes in Chinese; examples kept in English.
 - Valid JSON only. No markdown fences, no commentary.`;
 }

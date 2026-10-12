@@ -3,14 +3,17 @@
  */
 
 import * as storage from './storage.js';
-import { esc, speak } from './util.js';
+import { esc, speak, cleanSourceLine } from './util.js';
 
 function detailHtml(rec) {
     return rec.senses.map(s => `
         <div class="vocab-sense ${s.in_context ? 'ctx' : ''}">
             <div class="vocab-sense-head"><b>${esc(s.pos)}</b> ${esc(s.meaning)}
                 ${s.in_context ? '<span class="vocab-ctx-badge">本剧情义项</span>' : ''}</div>
-            <div class="vocab-example">${esc(s.example)}</div>
+            <div class="vocab-example-row">
+                <span class="vocab-example">${esc(s.example)}</span>
+                ${s.example ? `<button class="vocab-mini-speak" data-say="${esc(s.example)}" title="朗读例句">🔊</button>` : ''}
+            </div>
             ${s.example_translation ? `<div class="vocab-example-cn">${esc(s.example_translation)}</div>` : ''}
             ${(s.collocations || []).length ? `<div class="vocab-colloc">搭配：${s.collocations.map(esc).join('、')}</div>` : ''}
             ${s.note ? `<div class="vocab-note">💡 ${esc(s.note)}</div>` : ''}
@@ -57,7 +60,7 @@ export async function renderWordsTab(container) {
                         <button class="vocab-item-del" title="删除">🗑</button>
                     </div>
                     <div class="vocab-item-detail" style="display:none">${detailHtml(r)}
-                        <div class="vocab-source">出处：${esc(r.source?.card || '未知')} ｜ ${esc(r.source?.line || '')}</div>
+                        <div class="vocab-source">出处：${esc(r.source?.card || '未知')} ｜ ${esc(cleanSourceLine(r.source?.line || ''))}</div>
                     </div>
                 </div>`).join('');
 
@@ -71,6 +74,9 @@ export async function renderWordsTab(container) {
                 e.stopPropagation();
                 speak(item.dataset.word);
             };
+            item.querySelectorAll('.vocab-mini-speak').forEach(b => {
+                b.onclick = (e) => { e.stopPropagation(); speak(b.dataset.say); };
+            });
             item.querySelector('.vocab-item-del').onclick = async () => {
                 if (!confirm(`删除词条「${item.dataset.word}」？`)) return;
                 await storage.remove(item.dataset.word);

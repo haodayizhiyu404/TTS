@@ -4,7 +4,7 @@
 
 import * as storage from './storage.js';
 import * as srs from './srs.js';
-import { esc, speak } from './util.js';
+import { esc, speak, cleanSourceLine } from './util.js';
 
 const QUALITY = { again: 0, hard: 3, good: 5 };
 let deck = [];        // 今日到期队列
@@ -16,11 +16,21 @@ function senseHtml(s) {
         ? `<div class="vocab-colloc">搭配：${s.collocations.map(esc).join('、')}</div>` : '';
     const note = s.note ? `<div class="vocab-note">💡 ${esc(s.note)}</div>` : '';
     const trans = s.example_translation ? `<div class="vocab-example-cn">${esc(s.example_translation)}</div>` : '';
+    const say = esc(s.example || '');
     return `<div class="vocab-sense ${s.in_context ? 'ctx' : ''}">
         <div class="vocab-sense-head"><b>${esc(s.pos)}</b> ${esc(s.meaning)} ${badge}</div>
-        <div class="vocab-example">${esc(s.example)}</div>
+        <div class="vocab-example-row">
+            <span class="vocab-example">${esc(s.example)}</span>
+            ${s.example ? `<button class="vocab-mini-speak" data-say="${say}" title="朗读例句">🔊</button>` : ''}
+        </div>
         ${trans}${cols}${note}
     </div>`;
+}
+
+function bindMiniSpeaks(container) {
+    container.querySelectorAll('.vocab-mini-speak').forEach(b => {
+        b.onclick = (e) => { e.stopPropagation(); speak(b.dataset.say); };
+    });
 }
 
 function render(container) {
@@ -55,7 +65,7 @@ function render(container) {
                     <button class="vocab-speak-btn" id="vocab-speak2" title="发音">🔊</button>
                 </div>
                 ${sorted.map(senseHtml).join('')}
-                <div class="vocab-source">出处：${esc(rec.source?.card || '未知')} ｜ ${esc((rec.source?.line || '').slice(0, 80))}</div>
+                <div class="vocab-source">出处：${esc(rec.source?.card || '未知')} ｜ ${esc(cleanSourceLine(rec.source?.line || ''))}</div>
             </div>
             <div class="vocab-grade-row">
                 <button data-q="${QUALITY.again}" class="vocab-grade again">不会</button>
@@ -64,6 +74,7 @@ function render(container) {
             </div>
             <div class="vocab-progress">剩余 ${deck.length} 张</div>`;
         container.querySelector('#vocab-speak2').onclick = () => speak(rec.word);
+        bindMiniSpeaks(container);
         container.querySelectorAll('.vocab-grade').forEach(btn => {
             btn.onclick = async () => {
                 const q = Number(btn.dataset.q);

@@ -5,6 +5,7 @@
 import { getContext } from '../../../extensions.js';
 import * as storage from './storage.js';
 import * as ai from './ai.js';
+import { getConfig } from './config.js';
 
 let floatBtn = null;
 let busy = false;
@@ -100,6 +101,7 @@ export function initSelection() {
     document.addEventListener('mouseup', (e) => {
         if (e.target === btn || btn.contains(e.target)) return;
         setTimeout(() => {
+            if (!getConfig().captureEnabled) { hideBtn(); return; } // 总开关关闭时不收录
             const sel = window.getSelection();
             const text = sel ? sel.toString().trim() : '';
             const mesText = text ? selectionInChat(sel) : null;

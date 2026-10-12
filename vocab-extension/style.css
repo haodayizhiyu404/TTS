@@ -53,10 +53,19 @@
 .vocab-ctx-badge { font-size: 11px; color: #6cb2ff; border: 1px solid #6cb2ff;
     border-radius: 4px; padding: 0 4px; margin-left: 6px; }
 .vocab-example { font-size: 13px; color: #cfd8e3; font-style: italic; margin: 4px 0; }
-.vocab-example-cn { font-size: 13px; color: #b8c4d4; margin: 2px 0 4px; }
-.vocab-colloc { font-size: 12px; color: #a9b4c4; }
-.vocab-note { font-size: 12px; color: #ffd97a; margin-top: 4px; }
-.vocab-source { font-size: 11px; color: #8a93a5; margin-top: 8px; }
+.vocab-example-cn { font-size: 13px; color: #b8c4d4; margin: 2px 0 8px; }
+.vocab-colloc { font-size: 12px; color: #a9b4c4; margin-top: 8px; padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,.09); }
+.vocab-note { font-size: 12px; color: #ffd97a; margin-top: 8px; padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,.09); }
+.vocab-source { font-size: 11px; color: #8a93a5; margin-top: 10px; padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,.09); }
+.vocab-example-row { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; }
+.vocab-example-row .vocab-example { margin: 0; }
+.vocab-mini-speak { width: 22px; height: 22px; padding: 0; flex: 0 0 22px;
+    border: none; border-radius: 50%; cursor: pointer; font-size: 11px;
+    background: rgba(255,255,255,.12); color: #fff; }
+.vocab-mini-speak:hover { background: #2b6cb0; }
 
 .vocab-speak-btn { width: 34px; height: 34px; padding: 0; border: none;
     border-radius: 50%; cursor: pointer; font-size: 15px;
@@ -97,3 +106,7 @@
 .vocab-data-row { display: flex; gap: 10px; margin: 8px 0; }
 .vocab-data-row button { padding: 8px 14px; border: none; border-radius: 8px;
     cursor: pointer; background: #2b6cb0; color: #fff; }
+
+/* 扩展设置抽屉里的开关行 */
+.vocab-setting-row { display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: #e8e8ef; margin: 8px 0; cursor: pointer; }
