@@ -4,8 +4,14 @@
 .mtts-play:hover { opacity: 1; }
 .mtts-play.mtts-dim { opacity: .15; cursor: not-allowed; }
 
-/* 发送区按钮列里的小喇叭开关（.interactable 继承酒馆按钮样式） */
-#multi-tts-float.mtts-on { color: #6cb2ff; text-shadow: 0 0 6px rgba(108,178,255,.6); }
+/* 已保存绑定的显示态 */
+.mtts-chip { background: var(--black30a, #2b2b3a); border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-radius: 6px; padding: 3px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mtts-chip-name { flex: 0 0 auto; font-weight: bold; }
+.mtts-chip-voice { flex: 1; min-width: 0; opacity: .85; font-size: 12px; }
+
+/* 保存按钮与下方扩展留距 */
+#mtts-save { margin-bottom: 16px; }
 
 .mtts-settings { font-size: 13px; }
 .mtts-settings .mtts-field { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }

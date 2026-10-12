@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.1.1';
+const VERSION = '2.2.0';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -28,7 +28,6 @@ const DEFAULT_GLOBAL = {
 
 const DEFAULT_CARD = {
     voiceMap: {},            // { 故事内角色名: 音色ID }
-    narratorVoice: '',       // 旁白，空 = 不朗读
     speed: 1,                // Fish 语速 0.5~1.5
 };
 
@@ -209,7 +208,7 @@ function parseSegments(text) {
 
 function voiceFor(name) {
     if (!card) return null;
-    if (name === null || name === undefined) return card.narratorVoice || null;
+    if (name === null || name === undefined) return null; // 不朗读旁白/未匹配文本
     return card.voiceMap[name] ?? null;
 }
 
@@ -401,8 +400,9 @@ function hookEvents() {
         enqueueMessage(segments);
     });
 
-    eventSource.on(event_types.MESSAGE_SWIPED, (i) => decorateMessage(normalizeIndex(i)));
-    eventSource.on(event_types.MESSAGE_EDITED, (i) => decorateMessage(normalizeIndex(i)));
+    eventSource.on(event_types.MESSAGE_SWIPED, (i) => setTimeout(() => decorateMessage(normalizeIndex(i)), 300));
+    // 编辑后酒馆会重渲染 DOM，事件触发时新 DOM 未必就绪，延迟装饰
+    eventSource.on(event_types.MESSAGE_EDITED, (i) => setTimeout(() => decorateMessage(normalizeIndex(i)), 300));
     eventSource.on(event_types.CHAT_CHANGED, () => {
         stopAll();
         refreshCardContext();
@@ -419,26 +419,6 @@ function notify(msg, type = 'info', timeout = 2500) {
     catch (e) { console.warn('[MultiTTS]', msg); }
 }
 
-// 小喇叭开关：挂在发送区汉堡按钮（#options_button）旁边，跟随酒馆布局（含移动端）
-function createFloatButton() {
-    if (document.getElementById('multi-tts-float')) return;
-    const btn = document.createElement('div');
-    btn.id = 'multi-tts-float';
-    btn.className = 'fa-solid fa-volume-high interactable';
-    btn.title = 'Multi-Char TTS：开关自动朗读（播放中点击=立即停止）';
-    btn.classList.toggle('mtts-on', global.enabled);
-    btn.onclick = () => {
-        if (currentAudio || queue.length > 0) { stopAll(); notify('已停止播放', 'info', 1200); return; }
-        global.enabled = !global.enabled;
-        saveGlobal();
-        btn.classList.toggle('mtts-on', global.enabled);
-        notify(global.enabled ? '自动朗读已开启' : '自动朗读已关闭', 'info', 1200);
-    };
-    const anchor = document.getElementById('options_button');
-    if (anchor) anchor.before(btn);
-    else setTimeout(createFloatButton, 2000); // DOM 未就绪，稍后重试
-}
-
 function voiceInputHtml(selected) {
     if (global.provider === 'fish') {
         return `<input type="text" class="mtts-voice mtts-fish-voice" placeholder="Fish 音色ID（广场页面复制）" value="${escapeHtml(selected)}">`;
@@ -448,12 +428,25 @@ function voiceInputHtml(selected) {
     return `<select class="mtts-voice mtts-edge-voice">${opts}</select>`;
 }
 
-function rowHtml(name, voice) {
+// 编辑态行：新建或点 ✎ 后进入
+function editRowHtml(name, voice) {
     return `<div class="mtts-row mtts-vrow">
         <input type="text" class="mtts-name" placeholder="故事内角色名" value="${escapeHtml(name)}">
         ${voiceInputHtml(voice)}
         <button class="mtts-ghost mtts-preview">🔊</button>
-        <button class="mtts-del">✕</button>
+        <button class="mtts-del" title="移除">✕</button>
+    </div>`;
+}
+
+// 显示态行：已保存的绑定，只看不动，✎ 才进入编辑
+function viewRowHtml(name, voice) {
+    const short = voice.length > 28 ? voice.slice(0, 28) + '…' : voice;
+    return `<div class="mtts-row mtts-vrow-view" data-name="${escapeHtml(name)}" data-voice="${escapeHtml(voice)}">
+        <span class="mtts-chip mtts-chip-name">${escapeHtml(name)}</span>
+        <span class="mtts-chip mtts-chip-voice" title="${escapeHtml(voice)}">${escapeHtml(short)}</span>
+        <button class="mtts-ghost mtts-preview" title="试听">🔊</button>
+        <button class="mtts-ghost mtts-edit" title="编辑">✎</button>
+        <button class="mtts-del" title="删除绑定">✕</button>
     </div>`;
 }
 
@@ -466,7 +459,24 @@ function bindRowEvents(root) {
             if (!v) { notify('先填音色', 'warning', 1200); return; }
             preview(v);
         };
-        row.querySelector('.mtts-del').onclick = () => row.remove();
+        row.querySelector('.mtts-del').onclick = () => row.remove(); // 草稿行，直接移除
+    });
+    root.querySelectorAll('.mtts-vrow-view').forEach(row => {
+        if (row.dataset.bound) return;
+        row.dataset.bound = '1';
+        row.querySelector('.mtts-preview').onclick = () => preview(row.dataset.voice);
+        row.querySelector('.mtts-edit').onclick = () => {
+            const frag = document.createElement('div');
+            frag.innerHTML = editRowHtml(row.dataset.name, row.dataset.voice);
+            const editRow = frag.firstElementChild;
+            row.replaceWith(editRow);
+            bindRowEvents(editRow.parentElement || root);
+        };
+        row.querySelector('.mtts-del').onclick = () => {
+            if (confirm(`删除角色「${row.dataset.name}」的音色绑定？（点"保存到角色卡"后生效）`)) {
+                row.remove();
+            }
+        };
     });
 }
 
@@ -497,7 +507,7 @@ function renderSettings() {
     const isFish = global.provider === 'fish';
     const name = cardName();
     const rows = card ? Object.entries(card.voiceMap)
-        .map(([n, v]) => rowHtml(n, v)).join('') : '';
+        .map(([n, v]) => viewRowHtml(n, v)).join('') : '';
 
     root.innerHTML = `
         <div class="mtts-status" id="mtts-status">检测后端中…</div>
@@ -515,13 +525,13 @@ function renderSettings() {
             <label class="mtts-field">Fish 模型
                 <input type="text" id="mtts-fish-model" value="${escapeHtml(global.fishModel)}">
             </label>
-            <label class="mtts-field"><input type="checkbox" id="mtts-enabled" ${global.enabled ? 'checked' : ''}> 新消息自动朗读（默认关）</label>
         </div>
         <div id="mtts-edge-config" style="${isFish ? 'display:none' : ''}">
             <label class="mtts-field">Edge 语速 <span id="mtts-rate-out">${global.rate}</span>
                 <input type="range" id="mtts-rate" min="-50" max="50" step="5" value="${global.rate}">
             </label>
         </div>
+        <label class="mtts-field"><input type="checkbox" id="mtts-enabled" ${global.enabled ? 'checked' : ''}> 新消息自动朗读（默认关）</label>
 
         <hr>
         ${card ? `
@@ -529,12 +539,7 @@ function renderSettings() {
         <div class="mtts-hint">角色名 = 世界书格式里【】中的名字，不是卡名。对话行尾的 🔊 随时可点。</div>
         <div id="mtts-rows">${rows}</div>
         <button class="mtts-ghost" id="mtts-add">＋ 添加角色</button>
-        <div class="mtts-row" style="margin-top:8px">
-            <span style="flex:1">旁白（未匹配到人名的文本）</span>
-            <span id="mtts-narrator-wrap">${voiceInputHtml(card.narratorVoice)}</span>
-            <button class="mtts-ghost mtts-preview-n">🔊</button>
-        </div>
-        <label class="mtts-field" style="${isFish ? '' : 'display:none'}">Fish 语速 <span id="mtts-speed-out">${card.speed}</span>
+        <label class="mtts-field" style="${isFish ? '' : 'display:none'}; margin-top:8px">Fish 语速 <span id="mtts-speed-out">${card.speed}</span>
             <input type="range" id="mtts-speed" min="0.5" max="1.5" step="0.05" value="${card.speed}">
         </label>
         <button id="mtts-save">保存到角色卡</button>
@@ -549,11 +554,6 @@ function renderSettings() {
     }
 
     bindRowEvents(root);
-    root.querySelector('.mtts-preview-n').onclick = () => {
-        const v = root.querySelector('#mtts-narrator-wrap .mtts-voice').value.trim();
-        if (!v) { notify('先选旁白音色', 'warning', 1200); return; }
-        preview(v);
-    };
     root.querySelector('#mtts-provider').onchange = async (e) => {
         global.provider = e.target.value;
         if (global.provider === 'edge' && edgeVoices.length === 0) {
@@ -572,18 +572,21 @@ function renderSettings() {
             edgeVoices = await fetchEdgeVoices();
             if (edgeVoices.length === 0) { notify('Edge 音色列表为空，检查后端', 'warning'); return; }
         }
-        root.querySelector('#mtts-rows').insertAdjacentHTML('beforeend', rowHtml('', ''));
+        root.querySelector('#mtts-rows').insertAdjacentHTML('beforeend', editRowHtml('', ''));
         bindRowEvents(root.querySelector('#mtts-rows'));
     };
     root.querySelector('#mtts-save').onclick = async () => {
+        // 显示态行是已保存的绑定；编辑态行覆盖同名条目
         const voiceMap = {};
+        root.querySelectorAll('.mtts-vrow-view').forEach(row => {
+            voiceMap[row.dataset.name] = row.dataset.voice;
+        });
         root.querySelectorAll('.mtts-vrow').forEach(row => {
             const n = row.querySelector('.mtts-name').value.trim();
             const v = row.querySelector('.mtts-voice').value.trim();
             if (n) voiceMap[n] = v;
         });
         card.voiceMap = voiceMap;
-        card.narratorVoice = root.querySelector('#mtts-narrator-wrap .mtts-voice').value.trim();
         if (speedEl) card.speed = Number(speedEl.value);
         global.fishKey = root.querySelector('#mtts-fish-key')?.value.trim() ?? global.fishKey;
         global.fishModel = root.querySelector('#mtts-fish-model')?.value.trim() || 's2.1-pro-free';
@@ -591,8 +594,8 @@ function renderSettings() {
         global.enabled = root.querySelector('#mtts-enabled')?.checked ?? global.enabled;
         saveGlobal();
         await saveCard();
-        document.getElementById('multi-tts-float')?.classList.toggle('mtts-on', global.enabled);
         notify('已保存（音色表已写入角色卡）', 'success', 2000);
+        renderSettings(); // 回到显示态
     };
 
     updateStatus(root.querySelector('#mtts-status'));
@@ -640,7 +643,6 @@ export function init() {
         refreshCardContext();
         console.info(`[MultiTTS] v${VERSION} initializing, provider=${global.provider}, card=${cardName() ?? 'none'}`);
         hookEvents();
-        createFloatButton();
         injectSettingsUI();
         setTimeout(decorateAll, 300);
         setTimeout(decorateAll, 1500);
