@@ -587,4 +587,5 @@ jQuery(async () => {
     setTimeout(decorateAll, 300);
     setTimeout(decorateAll, 1500);
     console.info(`[MultiTTS] v${VERSION} loaded, provider=${settings.provider}`);
+    notify(`Multi-Char TTS v${VERSION} 已加载（右下角 🔊，设置在插件管理里）`, 'success', 4000);
 });
