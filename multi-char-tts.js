@@ -1,7 +1,7 @@
 (async () => {
 'use strict';
 
-const TTS_VERSION = '1.2.1';
+const TTS_VERSION = '1.3.0';
 /**
  * ============================================================
  *  多角色分音色 TTS · UI 版（Edge TTS）
@@ -41,8 +41,10 @@ const DEFAULT_CONFIG = {
  * - 动作/神态描写写在外面（可用 *星号*），也不朗读
  */
 function extractSpoken(text) {
+    // 0) 剥掉行首的【人名】：标记本身
+    let t = text.replace(/^\s*【[^】]*】\s*[:：]/, ' ');
     // 1) 去掉全角括号中的中文翻译
-    let t = text.replace(/（[^（）]*）/g, ' ');
+    t = t.replace(/（[^（）]*）/g, ' ');
     // 2) 有引号则只取引号内的英文（多个引号段拼接）
     const quoted = [];
     const qre = /[“"]([^“”"]+)[”"]/g;
@@ -161,27 +163,31 @@ function cleanText(t) {
 }
 
 function parseSegments(text) {
-    const marks = [];
-    const re = /【\s*([^\]【]{1,30}?)\s*】\s*[:：]/g;
-    let m;
-    while ((m = re.exec(text)) !== null) {
-        marks.push({ name: m[1].trim(), contentStart: re.lastIndex, index: m.index });
-    }
-
     const segs = [];
-    if (marks.length === 0) {
-        const t = cleanText(text);
-        if (t) segs.push({ name: null, text: t });
-        return segs;
-    }
-    if (marks[0].index > 0) {
-        const t = cleanText(text.slice(0, marks[0].index));
-        if (t) segs.push({ name: null, text: t });
-    }
-    for (let i = 0; i < marks.length; i++) {
-        const end = i + 1 < marks.length ? marks[i + 1].index : text.length;
-        const t = cleanText(text.slice(marks[i].contentStart, end));
-        if (t) segs.push({ name: marks[i].name, text: t });
+    // 格式规范：每段对话独立成行。按行解析，杜绝"一句吞到消息结尾"
+    const lines = text.split('\n');
+    for (const line of lines) {
+        LINE_RE.lastIndex = 0;
+        const marks = [];
+        let m;
+        while ((m = LINE_RE.exec(line)) !== null) {
+            marks.push({ name: m[1].trim(), start: m.index, contentStart: LINE_RE.lastIndex });
+        }
+        if (marks.length === 0) {
+            const t = cleanText(line);
+            if (t) segs.push({ name: null, text: t });
+            continue;
+        }
+        // 行首标记之前的文本是旁白
+        if (marks[0].start > 0) {
+            const t = cleanText(line.slice(0, marks[0].start));
+            if (t) segs.push({ name: null, text: t });
+        }
+        for (let i = 0; i < marks.length; i++) {
+            const end = i + 1 < marks.length ? marks[i + 1].start : line.length;
+            const t = cleanText(line.slice(marks[i].contentStart, end));
+            if (t) segs.push({ name: marks[i].name, text: t });
+        }
     }
     return segs;
 }
@@ -201,13 +207,23 @@ function normalizeIndex(messageIndex) {
     return ctx.chat.length - 1;
 }
 
+// 块级元素：行边界天然以它们为界，装饰永不跨块
+const BLOCK_SEL = 'p, li, div, h1, h2, h3, h4, h5, h6, blockquote, td';
+
 function decorateMessage(mesIndex) {
     const mesText = parentDoc.querySelector(`#chat .mes[mesid="${mesIndex}"] .mes_text`);
     if (!mesText || mesText.querySelector('.mtts-play')) return; // 已装饰过
 
-    // 汇总整条消息的纯文本，并记录每个文本节点的全局偏移
+    // 只取"叶子块"（内部不含其他块级元素的块），逐块装饰
+    const blocks = [...mesText.querySelectorAll(BLOCK_SEL)]
+        .filter(b => !b.querySelector(BLOCK_SEL));
+    for (const block of blocks) decorateBlock(block);
+}
+
+function decorateBlock(block) {
+    // 汇总块内纯文本与节点偏移
     const nodes = [];
-    const walker = parentDoc.createTreeWalker(mesText, NodeFilter.SHOW_TEXT);
+    const walker = parentDoc.createTreeWalker(block, NodeFilter.SHOW_TEXT);
     let offset = 0;
     let n;
     while ((n = walker.nextNode()) !== null) {
@@ -215,22 +231,20 @@ function decorateMessage(mesIndex) {
         offset += n.nodeValue.length;
     }
     if (nodes.length === 0) return;
-    const fullText = nodes.map(x => x.node).map(x => x.nodeValue).join('');
+    const blockText = nodes.map(x => x.node.nodeValue).join('');
 
-    // 在完整文本上找所有【人名】：标记
     LINE_RE.lastIndex = 0;
     const marks = [];
     let m;
-    while ((m = LINE_RE.exec(fullText)) !== null) {
+    while ((m = LINE_RE.exec(blockText)) !== null) {
         marks.push({ name: m[1].trim(), start: m.index });
     }
     if (marks.length === 0) return;
 
     // 从后往前装饰，保持前面的偏移有效
     for (let i = marks.length - 1; i >= 0; i--) {
-        const end = i + 1 < marks.length ? marks[i + 1].start : fullText.length;
-        const lineText = fullText.slice(marks[i].start, end);
-        wrapLine(nodes, marks[i].start, end, lineText, marks[i].name);
+        const end = i + 1 < marks.length ? marks[i + 1].start : blockText.length;
+        wrapSegment(nodes, marks[i].start, end, blockText.slice(marks[i].start, end), marks[i].name);
     }
 }
 
@@ -243,7 +257,7 @@ function locateNode(nodes, pos) {
     return null;
 }
 
-function wrapLine(nodes, start, end, lineText, name) {
+function wrapSegment(nodes, start, end, lineText, name) {
     const s = locateNode(nodes, start);
     const e = locateNode(nodes, end);
     if (!s || !e) return;
@@ -259,7 +273,7 @@ function wrapLine(nodes, start, end, lineText, name) {
     try {
         range.surroundContents(span);
     } catch (err) {
-        // 段首/段尾落在 <em> 等元素内部时 surroundContents 会失败，改用手动提取
+        // 理论上块内区间不会再跨块级元素；保险起见仍保留降级
         const frag = range.extractContents();
         span.appendChild(frag);
         range.insertNode(span);
