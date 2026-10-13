@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.5.1';
+const VERSION = '2.5.2';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -576,6 +576,13 @@ function hookEvents() {
         refreshCardContext();
         setTimeout(decorateAll, 300);
         renderSettings();
+    });
+    // 酒馆缺陷：取消编辑（按钮或 Esc）会静默重建 DOM 但不发 MESSAGE_EDITED —— 自行补监听
+    document.addEventListener('click', (e) => {
+        if (e.target.closest?.('.mes_edit_cancel')) setTimeout(decorateAll, 300);
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') setTimeout(decorateAll, 300);
     });
     eventSource.on(event_types.GENERATION_STARTED, () => stopAll());
 }
