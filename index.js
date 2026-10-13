@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.4.2';
+const VERSION = '2.5.0';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -161,13 +161,90 @@ async function synth(text, voice) {
     return await synthEdge(text, voice);
 }
 
-// ==================== 音频缓存（会话内） ====================
-// 同 引擎+音色+语速+文本 直接复用已合成的音频，避免重复请求浪费额度；
-// 150 条 LRU 淘汰；在途请求去重（快速连点只发一个）
+// ==================== 音频缓存 ====================
+// 两层：内存 LRU（150 条，会话内）+ IndexedDB（300 条/100MB，跨会话持久）。
+// 同 引擎+音色+语速+文本 直接复用已合成的音频，避免重复请求浪费额度
 
 const audioCache = new Map();
 const pendingSynth = new Map();
 const CACHE_MAX = 150;
+
+const IDB_NAME = 'mtts-audio';
+const IDB_STORE = 'audio';
+const IDB_MAX_COUNT = 300;
+const IDB_MAX_BYTES = 100 * 1024 * 1024;
+let idbPromise = null;
+let putsSinceEvict = 0;
+
+function idbOpen() {
+    if (idbPromise) return idbPromise;
+    idbPromise = new Promise((resolve, reject) => {
+        const rq = indexedDB.open(IDB_NAME, 1);
+        rq.onupgradeneeded = () => {
+            const store = rq.result.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+            store.createIndex('k', 'k', { unique: false });
+            store.createIndex('ts', 'ts', { unique: false });
+        };
+        rq.onsuccess = () => resolve(rq.result);
+        rq.onerror = () => reject(rq.error);
+    });
+    return idbPromise;
+}
+
+async function idbGet(key) {
+    try {
+        const db = await idbOpen();
+        return await new Promise((resolve, reject) => {
+            const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).index('k').get(key);
+            rq.onsuccess = () => resolve(rq.result || null);
+            rq.onerror = () => reject(rq.error);
+        });
+    } catch (e) { return null; }
+}
+
+async function idbPut(key, blob) {
+    try {
+        const db = await idbOpen();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(IDB_STORE, 'readwrite');
+            tx.objectStore(IDB_STORE).put({ k: key, blob: blob, ts: Date.now() });
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+        if (++putsSinceEvict >= 20) { putsSinceEvict = 0; idbEvict(); }
+    } catch (e) { /* IndexedDB 不可用（隐私模式等）时静默降级为纯内存 */ }
+}
+
+async function idbEvict() {
+    try {
+        const db = await idbOpen();
+        const rows = await new Promise((resolve, reject) => {
+            const out = [];
+            const rq = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).index('ts').openCursor();
+            rq.onsuccess = () => {
+                const c = rq.result;
+                if (c) { out.push({ id: c.value.id, size: c.value.blob?.size || 0 }); c.continue(); }
+                else resolve(out);
+            };
+            rq.onerror = () => reject(rq.error);
+        });
+        let total = rows.reduce((s, r) => s + r.size, 0);
+        const del = [];
+        for (const r of rows) {
+            if (rows.length - del.length <= IDB_MAX_COUNT && total <= IDB_MAX_BYTES) break;
+            del.push(r.id);
+            total -= r.size;
+        }
+        if (del.length) {
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(IDB_STORE, 'readwrite');
+                del.forEach(id => tx.objectStore(IDB_STORE).delete(id));
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+        }
+    } catch (e) { /* 忽略 */ }
+}
 
 function cacheKey(text, voice) {
     const speedParam = global.provider === 'fish' ? (card?.speed ?? 1) : global.rate;
@@ -184,15 +261,17 @@ async function synthCached(text, voice) {
     }
     const inflight = pendingSynth.get(key);
     if (inflight) return inflight;
-    const promise = synth(text, voice)
-        .then(blob => {
-            if (audioCache.size >= CACHE_MAX) {
-                audioCache.delete(audioCache.keys().next().value);
-            }
-            audioCache.set(key, blob);
-            return blob;
-        })
-        .finally(() => pendingSynth.delete(key));
+    const promise = (async () => {
+        // 第二层：IndexedDB 持久缓存（roll 掉的旧句只占名额，按时间序自然淘汰）
+        const stored = await idbGet(key);
+        const blob = stored ? stored.blob : await synth(text, voice);
+        if (audioCache.size >= CACHE_MAX) {
+            audioCache.delete(audioCache.keys().next().value);
+        }
+        audioCache.set(key, blob);
+        if (!stored) idbPut(key, blob);
+        return blob;
+    })().finally(() => pendingSynth.delete(key));
     pendingSynth.set(key, promise);
     return promise;
 }
