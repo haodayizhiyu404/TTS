@@ -16,7 +16,7 @@ import { extension_settings, getContext, writeExtensionField } from '../../../ex
 import { eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
 
 const EXTENSION_NAME = 'multi-char-tts';
-const VERSION = '2.5.0';
+const VERSION = '2.5.1';
 
 const DEFAULT_GLOBAL = {
     provider: 'fish',        // 'fish' | 'edge'
@@ -838,6 +838,8 @@ function injectSettingsUI() {
             <div id="mtts-settings-root" class="mtts-settings"></div>
         </div>`;
     container.appendChild(wrap);
+    // 默认收起（ST 折叠面板机制：内容 display:none + 图标 down）
+    wrap.querySelector('.inline-drawer-content').style.display = 'none';
     renderSettings();
 }
 
